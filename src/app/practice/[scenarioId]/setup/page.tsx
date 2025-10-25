@@ -802,9 +802,15 @@ export default function SetupPage({ params }: SetupPageProps) {
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center text-gray-600">
-                    <Clock className="w-4 h-4 mr-2" /> Default duration
+                    <Clock className="w-4 h-4 mr-2" /> Duration
                   </div>
-                  <div>{Math.floor((scenario.duration ?? 0) / 60)} min</div>
+                  <div>
+                    {timeLimitMinutes > 0 ? (
+                      <>{timeLimitMinutes} min</>
+                    ) : (
+                      <>Timer off</>
+                    )}
+                  </div>
                 </div>
                 <div className="flex items-center justify-between">
                   <div className="flex items-center text-gray-600">Vibe</div>
