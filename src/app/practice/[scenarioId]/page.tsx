@@ -44,6 +44,7 @@ export default function PracticePage({ params }: PracticePageProps) {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState<string>('');
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState<string>('');
+  const [customDurationSec, setCustomDurationSec] = useState<number | null>(null);
   
   // TTS State - simplified to just enabled/disabled
   const [ttsEnabled, setTtsEnabled] = useState(() => {
@@ -62,6 +63,30 @@ export default function PracticePage({ params }: PracticePageProps) {
     ttsService.setEnabled(ttsEnabled);
     localStorage.setItem('tts-enabled', JSON.stringify(ttsEnabled));
   }, [ttsEnabled]);
+
+  // Load custom time limit from setup (if any)
+  useEffect(() => {
+    if (!scenario) return;
+    try {
+      const key = `practice-config-${scenario.id}`;
+      const raw = localStorage.getItem(key);
+      if (!raw) {
+        setCustomDurationSec(null);
+        return;
+      }
+      const parsed = JSON.parse(raw);
+      const secs = Number(parsed?.timeLimitSeconds);
+      if (Number.isFinite(secs) && secs >= 0) {
+        setCustomDurationSec(secs);
+      } else {
+        setCustomDurationSec(null);
+      }
+      // Apply-once semantics so stale configs don't leak into future sessions
+      localStorage.removeItem(key);
+    } catch {
+      setCustomDurationSec(null);
+    }
+  }, [scenario]);
 
   // Enumerate media devices
   const enumerateDevices = async () => {
@@ -232,13 +257,16 @@ export default function PracticePage({ params }: PracticePageProps) {
     }, 2000);
   }, [scenario]);
 
+  // Determine effective duration (0 means timer disabled)
+  const effectiveDuration = (customDurationSec !== null ? customDurationSec : (scenario?.duration ?? 0));
+
   useEffect(() => {
     if (!isActive || sessionEnded) return;
-    
+
     const timer = setInterval(() => {
       setTimeElapsed(prev => {
         const newTime = prev + 1;
-        if (scenario && newTime >= scenario.duration) {
+        if (effectiveDuration > 0 && newTime >= effectiveDuration) {
           handleEndSession();
         }
         return newTime;
@@ -246,7 +274,7 @@ export default function PracticePage({ params }: PracticePageProps) {
     }, 1000);
 
     return () => clearInterval(timer);
-  }, [isActive, sessionEnded, scenario]);
+  }, [isActive, sessionEnded, effectiveDuration]);
 
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -426,7 +454,13 @@ export default function PracticePage({ params }: PracticePageProps) {
         <div className="flex items-center space-x-6 text-gray-300 text-sm">
           <div className="flex items-center">
             <Clock className="w-4 h-4 mr-2" />
-            {formatTime(timeElapsed)} / {formatTime(scenario.duration)}
+            {effectiveDuration > 0 ? (
+              <>
+                {formatTime(Math.max(0, effectiveDuration - timeElapsed))} left
+              </>
+            ) : (
+              <>Timer off</>
+            )}
           </div>
           <div className="flex items-center">
             <UsersIcon className="w-4 h-4 mr-2" />

@@ -416,7 +416,22 @@ export default function SetupPage({ params }: SetupPageProps) {
 
               {/* Actions */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-3 sm:space-y-0 pt-2">
-                <Button disabled className="w-full sm:w-auto">Start Practice</Button>
+                <Button
+                  className="w-full sm:w-auto"
+                  onClick={() => {
+                    if (!scenario) return;
+                    const secs = Math.max(0, Math.floor(Number(timeLimitMinutes) * 60));
+                    try {
+                      localStorage.setItem(
+                        `practice-config-${scenario.id}`,
+                        JSON.stringify({ timeLimitSeconds: secs })
+                      );
+                    } catch {}
+                    router.push(`/practice/${scenario.id}`);
+                  }}
+                >
+                  Start Practice
+                </Button>
                 <Link href={`/practice/${scenario.id}`} className="text-sm text-blue-600 hover:underline">
                   Skip setup and start now
                 </Link>
