@@ -224,7 +224,11 @@ export default function PracticePage({ params }: PracticePageProps) {
     
     // Initial greeting from first agent
     setTimeout(() => {
-      addAgentMessage(generatedAgents[0], "Hello! Welcome to the session. Feel free to introduce yourself!");
+      const welcomeMessage = generatedAgents[0].emotionPrefix 
+        ? `${generatedAgents[0].emotionPrefix} Hello! Welcome to the session. Feel free to introduce yourself!`
+        : "Hello! Welcome to the session. Feel free to introduce yourself!";
+        
+      addAgentMessage(generatedAgents[0], welcomeMessage);
     }, 2000);
   }, [scenario]);
 

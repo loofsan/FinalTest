@@ -1,5 +1,51 @@
 import { ScenarioType, Agent, DifficultyLevel } from '@/types';
 
+// Lead-up phrases for different scenarios
+const leadUpPhrases: Record<ScenarioType, string[]> = {
+  party: [
+    "So, I was wondering...",
+    "Oh, by the way...",
+    "I just wanted to ask...",
+    "Hey, quick question...",
+    "You know what...",
+    "Actually...",
+    "I'm curious...",
+  ],
+  classroom: [
+    "I have a question...",
+    "Let me think...",
+    "Actually, I believe...",
+    "From what I understand...",
+    "If I may add...",
+    "I was thinking...",
+    "In my opinion...",
+  ],
+  'job-interview': [
+    "That's a great question...",
+    "Let me explain...",
+    "I'd like to know...",
+    "To clarify...",
+    "Building on that...",
+    "I'm curious about...",
+  ],
+  'de-escalation': [
+    "I understand, but...",
+    "Let me see if I get this...",
+    "I hear what you're saying...",
+    "Can we talk about...",
+    "I feel like...",
+    "Help me understand...",
+  ],
+  presentation: [
+    "I was wondering...",
+    "Can you clarify...",
+    "This is interesting, but...",
+    "I'd like to know more about...",
+    "Going back to your point...",
+    "Just to confirm...",
+  ]
+};
+
 const responseTemplates: Record<ScenarioType, string[]> = {
   party: [
     "Hey! Great to meet you! What brings you here tonight?",
@@ -67,6 +113,21 @@ const followUpQuestions: Record<ScenarioType, string[]> = {
   ]
 };
 
+const shouldAddLeadUp = (difficulty: DifficultyLevel): boolean => {
+  const chances = {
+    easy: 0.4,
+    medium: 0.3,
+    hard: 0.2
+  };
+  return Math.random() < chances[difficulty];
+};
+
+const getRandomLeadUp = (scenarioType: ScenarioType): string => {
+  const phrases = leadUpPhrases[scenarioType];
+  return phrases[Math.floor(Math.random() * phrases.length)];
+};
+
+
 export const generateAgentResponse = (
   scenarioType: ScenarioType,
   agent: Agent,
@@ -80,7 +141,19 @@ export const generateAgentResponse = (
   const pool = conversationHistory.length > 2 ? [...templates, ...followUps] : templates;
   
   const randomIndex = Math.floor(Math.random() * pool.length);
-  return pool[randomIndex];
+  let response = pool[randomIndex];
+  
+  if (shouldAddLeadUp(difficulty)) {
+    const leadUp = getRandomLeadUp(scenarioType);
+    response = `${leadUp} ${response}`;
+  }
+  
+  // Add emotion prefix if agent has one (for TTS)
+  if (agent.emotionPrefix) {
+    response = `${agent.emotionPrefix} ${response}`;
+  }
+  
+  return response;
 };
 
 export const getResponseDelay = (difficulty: DifficultyLevel): number => {

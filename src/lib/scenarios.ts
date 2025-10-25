@@ -59,14 +59,62 @@ export const getScenarioById = (id: string): Scenario | undefined => {
 
 export const generateAgents = (scenario: Scenario): Agent[] => {
   const agentPool = [
-    { name: 'Alex', personality: 'friendly and outgoing', avatar: '👨', voiceId: 'b5f4515fd395410b9ed3aef6fa51d9a0'},
-    { name: 'Sarah', personality: 'professional and direct', avatar: '👩', voiceId: '933563129e564b19a115bedd57b7406a' },
-    { name: 'Mike', personality: 'curious and inquisitive', avatar: '👨‍💼', voiceId: 'f3e8c5bbead746e29d47d38a146247ff' },
-    { name: 'Emma', personality: 'supportive and encouraging', avatar: '👩‍💼', voiceId: 'fbae2ecb433e41a29495707efbc594b5' },
-    { name: 'David', personality: 'analytical and thoughtful', avatar: '👨‍🏫', voiceId: 'c39a76f685cf4f8fb41cd5d3d66b497d' },
-    { name: 'Lisa', personality: 'energetic and enthusiastic', avatar: '👩‍🎓', voiceId: 'd85e5484b8794626975d69b6ab27ac0c' },
-    { name: 'James', personality: 'calm and collected', avatar: '👨‍🎓', voiceId: '0b74ead073f2474a904f69033535b98e' },
-    { name: 'Rachel', personality: 'challenging and critical', avatar: '👩‍🏫', voiceId: '8cccba59fb744f6d941dad96b3cc6cad' }
+  { 
+    name: 'Alex', 
+    personality: 'friendly and outgoing', 
+    avatar: '👨', 
+    voiceId: 'b5f4515fd395410b9ed3aef6fa51d9a0',
+    emotionPrefix: '(happy) (excited)'
+  },
+  { 
+    name: 'Sarah', 
+    personality: 'professional and direct', 
+    avatar: '👩', 
+    voiceId: '933563129e564b19a115bedd57b7406a',
+    emotionPrefix: '(confident) (calm)'
+  },
+  { 
+    name: 'Mike', 
+    personality: 'curious and inquisitive', 
+    avatar: '👨‍💼', 
+    voiceId: 'f3e8c5bbead746e29d47d38a146247ff',
+    emotionPrefix: '(curious)'
+  },
+  { 
+    name: 'Emma', 
+    personality: 'supportive and encouraging', 
+    avatar: '👩‍💼', 
+    voiceId: 'fbae2ecb433e41a29495707efbc594b5',
+    emotionPrefix: '(empathetic) (satisfied)'
+  },
+  { 
+    name: 'David', 
+    personality: 'analytical and thoughtful', 
+    avatar: '👨‍🏫', 
+    voiceId: 'c39a76f685cf4f8fb41cd5d3d66b497d',
+    emotionPrefix: '(calm) (uncertain)'
+  },
+  { 
+    name: 'Lisa', 
+    personality: 'energetic and enthusiastic', 
+    avatar: '👩‍🎓', 
+    voiceId: 'd85e5484b8794626975d69b6ab27ac0c',
+    emotionPrefix: '(excited) (delighted)'
+  },
+  { 
+    name: 'James', 
+    personality: 'calm and collected', 
+    avatar: '👨‍🎓', 
+    voiceId: '0b74ead073f2474a904f69033535b98e',
+    emotionPrefix: '(relaxed) (calm)'
+  },
+  { 
+    name: 'Rachel', 
+    personality: 'challenging and critical', 
+    avatar: '👩‍🏫', 
+    voiceId: '8cccba59fb744f6d941dad96b3cc6cad',
+    emotionPrefix: '(doubtful) (sarcastic)'
+  }
   ];
 
   return agentPool
