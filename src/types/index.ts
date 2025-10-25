@@ -1,5 +1,7 @@
 export type DifficultyLevel = 'easy' | 'medium' | 'hard';
 
+export type Vibe = 'casual' | 'academic' | 'professional' | 'tense' | 'formal';
+
 export type ScenarioType = 
   | 'party'
   | 'classroom'
@@ -16,6 +18,9 @@ export interface Scenario {
   duration: number; // in seconds
   icon: string;
   difficulty: DifficultyLevel;
+  basePrompt: string;
+  vibe: Vibe;
+  presentational: boolean;
 }
 
 export interface Agent {
