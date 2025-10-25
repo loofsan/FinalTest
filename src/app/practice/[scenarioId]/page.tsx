@@ -7,7 +7,17 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { getScenarioById, generateAgents } from '@/lib/scenarios';
-import { generateAgentResponse, getResponseDelay, calculateScore, AgentPromptContext } from '@/lib/agent-responses';
+import {
+  generateAgentResponse,
+  getResponseDelay,
+  calculateScore,
+  AgentPromptContext,
+  initConversationState,
+  canGenerateAgentResponse,
+  updateStateOnUserMessage,
+  advanceAfterAgentResponse,
+  selectAgentToSpeak,
+} from '@/lib/agent-responses';
 import { ttsService } from '@/lib/tts-service';
 import { Message, Agent, DifficultyLevel } from '@/types';
 import { Mic, MicOff, Video, VideoOff, Phone, Clock, Users as UsersIcon, ArrowLeft, Settings, Check } from 'lucide-react';
@@ -29,6 +39,7 @@ export default function PracticePage({ params }: PracticePageProps) {
   
   const [agents, setAgents] = useState<Agent[]>([]);
   const [messages, setMessages] = useState<Message[]>([]);
+  const [convState, setConvState] = useState(() => initConversationState());
   const [userInput, setUserInput] = useState('');
   const [timeElapsed, setTimeElapsed] = useState(0);
   const [isActive, setIsActive] = useState(true);
@@ -56,6 +67,7 @@ export default function PracticePage({ params }: PracticePageProps) {
   
   const messagesEndRef = useRef<HTMLDivElement>(null);
   const agentResponseTimers = useRef<NodeJS.Timeout[]>([]);
+  const scheduledTurnRef = useRef<number | null>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
@@ -368,9 +380,12 @@ export default function PracticePage({ params }: PracticePageProps) {
               isUser: true,
             };
             setMessages((prev) => [...prev, userMessage]);
-            if (agents.length > 0 && !sessionEnded) {
-              scheduleAgentResponse();
-            }
+            // Update conversation state and schedule agent
+            setConvState((prev) => {
+              const next = updateStateOnUserMessage(prev);
+              if (agents.length > 0 && !sessionEnded) scheduleAgentResponse(next);
+              return next;
+            });
           }
         } finally {
           liveTranscribeInFlightRef.current = false;
@@ -439,6 +454,8 @@ export default function PracticePage({ params }: PracticePageProps) {
         : "Hello! Welcome to the session. Feel free to introduce yourself!";
         
       addAgentMessage(generatedAgents[0], welcomeMessage);
+      // Update conversation state to reflect agent spoke; now awaiting user
+      setConvState((prev) => advanceAfterAgentResponse(prev, generatedAgents[0].id));
     }, 2000);
   }, [scenario]);
 
@@ -487,13 +504,30 @@ export default function PracticePage({ params }: PracticePageProps) {
     }
   };
 
-  const scheduleAgentResponse = () => {
+  const scheduleAgentResponse = (stateSnapshot?: ReturnType<typeof initConversationState>) => {
     if (!scenario || agents.length === 0 || sessionEnded) return;
-    
+    const snapshot = stateSnapshot ?? convState;
+    // Enforce turn-taking gate: only after user spoke and we're not awaiting user
+    if (!canGenerateAgentResponse(snapshot)) return;
+    // Prevent duplicate scheduling for the same turn
+    if (scheduledTurnRef.current === snapshot.turnIndex) return;
+    scheduledTurnRef.current = snapshot.turnIndex;
+
     const delay = getResponseDelay(difficulty);
-    const randomAgent = agents[Math.floor(Math.random() * agents.length)];
-    
+    const selected = selectAgentToSpeak(messages, scenario, agents, 'active-host');
+    if (!selected) {
+      // Unable to choose; allow future attempts
+      scheduledTurnRef.current = null;
+      return;
+    }
+
     const timer = setTimeout(() => {
+      // Re-check gating at fire time
+      if (sessionEnded) return;
+      const current = convState;
+      if (!canGenerateAgentResponse(current)) return;
+      if (scheduledTurnRef.current !== current.turnIndex) return;
+
       const conversationHistory = messages.map(m => (m.isUser ? `You: ${m.content}` : `${m.agentName}: ${m.content}`));
       const ctx: AgentPromptContext = {
         scenarioBasePrompt: scenario.basePrompt,
@@ -503,17 +537,18 @@ export default function PracticePage({ params }: PracticePageProps) {
       };
       const response = generateAgentResponse(
         scenario.type,
-        randomAgent,
+        selected,
         difficulty,
         conversationHistory,
         ctx
       );
-      addAgentMessage(randomAgent, response);
-      
-      // Schedule next response
-      scheduleAgentResponse();
+      addAgentMessage(selected, response);
+      // Advance state: agent spoke; now await user
+      setConvState((prev) => advanceAfterAgentResponse(prev, selected.id));
+      // Clear scheduled turn lock
+      scheduledTurnRef.current = null;
     }, delay);
-    
+
     agentResponseTimers.current.push(timer);
   };
 
@@ -531,11 +566,13 @@ export default function PracticePage({ params }: PracticePageProps) {
     
     setMessages(prev => [...prev, userMessage]);
     setUserInput('');
-    
-    // Trigger agent response after user message
-    if (agents.length > 0 && !sessionEnded) {
-      scheduleAgentResponse();
-    }
+    // Update conversation state for user message and schedule agent
+    setConvState((prev) => {
+      const next = updateStateOnUserMessage(prev);
+      // Schedule based on the next state snapshot
+      if (agents.length > 0 && !sessionEnded) scheduleAgentResponse(next);
+      return next;
+    });
   };
 
   const handleEndSession = () => {

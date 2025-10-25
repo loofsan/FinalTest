@@ -1,4 +1,4 @@
-import { ScenarioType, Agent, DifficultyLevel } from '@/types';
+import { ScenarioType, Agent, DifficultyLevel, Scenario, Message } from '@/types';
 
 // Lightweight integration context for agent prompting
 export interface AgentPromptContext {
@@ -295,3 +295,95 @@ export const calculateScore = (
   
   return Math.round((baseScore + timeBonus) * difficultyMultiplier);
 };
+
+// -----------------------------------------------------------------------------
+// Conversation turn-taking state and speaker selection
+// -----------------------------------------------------------------------------
+
+export interface ConversationTurnState {
+  // 'user' for learner; otherwise agentId
+  lastSpeaker: 'user' | string;
+  // When true, the system is waiting for user to speak next
+  awaitingUser: boolean;
+  // Counts completed agent turns (increments after each agent response)
+  turnIndex: number;
+}
+
+export const initConversationState = (): ConversationTurnState => ({
+  lastSpeaker: 'system',
+  awaitingUser: true,
+  turnIndex: 0,
+});
+
+export const canGenerateAgentResponse = (state: ConversationTurnState): boolean => {
+  return state.lastSpeaker === 'user' && state.awaitingUser === false;
+};
+
+export const updateStateOnUserMessage = (state: ConversationTurnState): ConversationTurnState => ({
+  ...state,
+  lastSpeaker: 'user',
+  awaitingUser: false,
+});
+
+export const advanceAfterAgentResponse = (
+  state: ConversationTurnState,
+  agentId: string
+): ConversationTurnState => ({
+  lastSpeaker: agentId,
+  awaitingUser: true,
+  turnIndex: (state.turnIndex ?? 0) + 1,
+});
+
+// Choose a single agent to speak this turn.
+// Strategy:
+// - active-host: prefer agent named "Emma" if present; fallback to round-robin
+// - round-robin: based on number of agent messages so far
+const DEFAULT_HOST_NAME = 'Emma';
+
+function uniqueAgentsFromMessages(messages: Message[]): Array<{ id: string; name: string }> {
+  const seen = new Map<string, string>();
+  for (const m of messages) {
+    if (!m.isUser && m.agentId && m.agentName) {
+      if (!seen.has(m.agentId)) seen.set(m.agentId, m.agentName);
+    }
+  }
+  return Array.from(seen.entries()).map(([id, name]) => ({ id, name }));
+}
+
+function countAgentMessages(messages: Message[]): number {
+  return messages.filter((m) => !m.isUser).length;
+}
+
+export type SpeakerSelectionStrategy = 'active-host' | 'round-robin';
+
+export function selectAgentToSpeak(
+  messages: Message[],
+  scenario: Scenario,
+  agents?: Agent[],
+  strategy?: SpeakerSelectionStrategy
+): Agent | null {
+  const availableAgents: Agent[] = Array.isArray(agents) && agents.length > 0
+    ? agents
+    : [];
+
+  const chosenStrategy: SpeakerSelectionStrategy = strategy || 'active-host';
+
+  if (availableAgents.length === 0) {
+    // Fallback to deriving from messages if agents not provided
+    const derived = uniqueAgentsFromMessages(messages);
+    if (derived.length === 0) return null;
+    const rrIndex = countAgentMessages(messages) % derived.length;
+    const pick = derived[rrIndex];
+    return { id: pick.id, name: pick.name, personality: '', avatar: '' } as Agent;
+  }
+
+  if (chosenStrategy === 'active-host') {
+    const host = availableAgents.find((a) => a.name.toLowerCase() === DEFAULT_HOST_NAME.toLowerCase());
+    if (host) return host;
+    // Fallback to round-robin if host is not present
+  }
+
+  // round-robin by number of agent messages so far
+  const rrIdx = availableAgents.length > 0 ? countAgentMessages(messages) % availableAgents.length : 0;
+  return availableAgents[rrIdx] || null;
+}
