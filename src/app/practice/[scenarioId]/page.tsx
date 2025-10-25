@@ -61,6 +61,8 @@ export default function PracticePage({ params }: PracticePageProps) {
   const audioStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
   const audioChunksRef = useRef<Blob[]>([]);
+  const liveTranscribeTimerRef = useRef<NodeJS.Timeout | null>(null);
+  const liveTranscribeInFlightRef = useRef<boolean>(false);
 
   const [isRecording, setIsRecording] = useState(false);
   const [transcribing, setTranscribing] = useState(false);
@@ -323,8 +325,66 @@ export default function PracticePage({ params }: PracticePageProps) {
       }
       // Stop all TTS audio on unmount
       ttsService.stopAll();
+      // Clear live transcription timer
+      if (liveTranscribeTimerRef.current) {
+        clearInterval(liveTranscribeTimerRef.current);
+        liveTranscribeTimerRef.current = null;
+      }
     };
   }, []);
+
+  // Periodically flush mic chunks and transcribe into user messages
+  useEffect(() => {
+    const shouldRun = isRecording && isActive && !sessionEnded && !isMuted;
+    if (!shouldRun) {
+      if (liveTranscribeTimerRef.current) {
+        clearInterval(liveTranscribeTimerRef.current);
+        liveTranscribeTimerRef.current = null;
+      }
+      return;
+    }
+
+    if (!liveTranscribeTimerRef.current) {
+      liveTranscribeTimerRef.current = setInterval(async () => {
+        if (liveTranscribeInFlightRef.current) return;
+        if (!mediaRecorderRef.current) return;
+        const chunks = audioChunksRef.current;
+        if (!chunks || chunks.length === 0) return;
+        // Swap to a fresh array to avoid race conditions with ondataavailable
+        audioChunksRef.current = [];
+        const type = mediaRecorderRef.current.mimeType || 'audio/webm';
+        const blob = new Blob(chunks, { type });
+        if (blob.size < 2048) return; // skip tiny buffers
+        try {
+          liveTranscribeInFlightRef.current = true;
+          const text = await uploadAndTranscribe(blob);
+          if (text && text.trim().length > 1) {
+            const userMessage: Message = {
+              id: `msg-${Date.now()}`,
+              agentId: 'user',
+              agentName: 'You',
+              content: text.trim(),
+              timestamp: new Date(),
+              isUser: true,
+            };
+            setMessages((prev) => [...prev, userMessage]);
+            if (agents.length > 0 && !sessionEnded) {
+              scheduleAgentResponse();
+            }
+          }
+        } finally {
+          liveTranscribeInFlightRef.current = false;
+        }
+      }, 4000);
+    }
+
+    return () => {
+      if (liveTranscribeTimerRef.current) {
+        clearInterval(liveTranscribeTimerRef.current);
+        liveTranscribeTimerRef.current = null;
+      }
+    };
+  }, [isRecording, isActive, sessionEnded, isMuted]);
 
   // Handle video toggle
   useEffect(() => {
