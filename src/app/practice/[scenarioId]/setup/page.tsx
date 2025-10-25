@@ -8,7 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Clock, Users } from "lucide-react";
+import { ArrowLeft, Clock, Users, FileText, Image, Presentation } from "lucide-react";
 import { getScenarioById } from "@/lib/scenarios";
 
 interface SetupPageProps {
@@ -30,7 +30,7 @@ export default function SetupPage({ params }: SetupPageProps) {
   const [isExtracting, setIsExtracting] = useState(false);
   const [extractionError, setExtractionError] = useState<string | null>(null);
   const [extracted, setExtracted] = useState<
-    | { text: string; meta: { pages: number; chars: number } }
+    | { text: string; meta: { pages: number; chars: number; fileType?: string; processedBy?: string } }
     | null
   >(null);
 
@@ -40,15 +40,6 @@ export default function SetupPage({ params }: SetupPageProps) {
     setExtractionError(null);
 
     if (!file) return;
-
-    const isPdf =
-      file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
-
-    // Phase 3: only PDF support. PPTX will be added in Phase 4.
-    if (!isPdf) {
-      setExtractionError("Only PDF is supported in this phase. PPTX coming next.");
-      return;
-    }
 
     try {
       setIsExtracting(true);
@@ -73,7 +64,24 @@ export default function SetupPage({ params }: SetupPageProps) {
 
   const composedPrompt = `${scenario?.basePrompt ?? ''}${
     extraDetails.trim() ? `\n\nExtra details from user:\n${extraDetails.trim()}` : ''
+  }${
+    extracted ? `\n\nDocument content:\n${extracted.text.slice(0, 2000)}${extracted.text.length > 2000 ? '...' : ''}` : ''
   }`;
+
+  const getFileIcon = (file: File) => {
+    const type = file.type;
+    const name = file.name.toLowerCase();
+    
+    if (type === "application/pdf" || name.endsWith('.pdf')) {
+      return <FileText className="w-4 h-4" />;
+    } else if (type.includes("presentation") || name.endsWith('.pptx')) {
+      return <Presentation className="w-4 h-4" />;
+    } else if (type.startsWith("image/")) {
+      return <Image className="w-4 h-4" />;
+    } else {
+      return <FileText className="w-4 h-4" />;
+    }
+  };
 
   if (!scenario) {
     return (
@@ -114,21 +122,24 @@ export default function SetupPage({ params }: SetupPageProps) {
               {/* Document upload */}
               <div>
                 <Label htmlFor="material" className="block mb-2">
-                  Upload material (PDF or PPTX)
+                  Upload material (PDF, PPTX, Images, or Text)
                 </Label>
                 <Input
                   id="material"
                   type="file"
-                  accept=".pdf,application/pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
+                  accept=".pdf,.pptx,.ppt,.txt,.md,.csv,.jpg,.jpeg,.png,.gif,.webp,application/pdf,application/vnd.openxmlformats-officedocument.presentationml.presentation,text/*,image/*"
                   onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
                 />
                 {selectedFile && (
-                  <p className="text-sm text-gray-600 mt-2">
-                    Selected: <span className="font-medium">{selectedFile.name}</span> ({Math.ceil(selectedFile.size / 1024)} KB)
-                  </p>
+                  <div className="text-sm text-gray-600 mt-2 flex items-center">
+                    {getFileIcon(selectedFile)}
+                    <span className="ml-2">
+                      <span className="font-medium">{selectedFile.name}</span> ({Math.ceil(selectedFile.size / 1024)} KB)
+                    </span>
+                  </div>
                 )}
                 {isExtracting && (
-                  <p className="text-xs text-gray-500 mt-2">Extracting text from PDF…</p>
+                  <p className="text-xs text-gray-500 mt-2">Processing document with Gemini AI…</p>
                 )}
                 {extractionError && (
                   <p className="text-xs text-red-600 mt-2">{extractionError}</p>
@@ -136,8 +147,15 @@ export default function SetupPage({ params }: SetupPageProps) {
                 {!isExtracting && extracted && (
                   <div className="mt-4 border rounded-md p-3 bg-gray-50">
                     <div className="text-sm font-medium mb-1">Extraction Summary</div>
-                    <div className="text-xs text-gray-600 mb-2">
-                      Pages: <span className="font-semibold">{extracted.meta.pages}</span> · Characters: <span className="font-semibold">{extracted.meta.chars}</span>
+                    <div className="text-xs text-gray-600 mb-2 space-y-1">
+                      <div>Type: <span className="font-semibold capitalize">{extracted.meta.fileType || 'document'}</span></div>
+                      <div>Characters: <span className="font-semibold">{extracted.meta.chars.toLocaleString()}</span></div>
+                      {extracted.meta.pages > 1 && (
+                        <div>Est. Pages: <span className="font-semibold">{extracted.meta.pages}</span></div>
+                      )}
+                      {extracted.meta.processedBy && (
+                        <div className="text-xs text-blue-600">Powered by Gemini AI</div>
+                      )}
                     </div>
                     <div>
                       <div className="text-xs text-gray-500 mb-1">Preview (first 800 chars)</div>
@@ -149,9 +167,10 @@ export default function SetupPage({ params }: SetupPageProps) {
                   </div>
                 )}
                 {!selectedFile && (
-                  <p className="text-xs text-gray-500 mt-2">
-                    Optional: upload a PDF for text extraction. PPTX support arrives in the next phase.
-                  </p>
+                  <div className="text-xs text-gray-500 mt-2 space-y-1">
+                    <p>Optional: Upload any document for AI-powered text extraction</p>
+                    <p className="text-blue-600">✨ Now supports: PDF, PowerPoint, Images, and Text files with Gemini AI</p>
+                  </div>
                 )}
               </div>
 
@@ -252,9 +271,9 @@ export default function SetupPage({ params }: SetupPageProps) {
             </CardHeader>
             <CardContent>
               <div className="text-xs text-gray-500 mb-2">
-                Updates live as you edit extra details
+                Updates live as you edit details or upload documents
               </div>
-              <div className="bg-gray-50 border rounded p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+              <div className="bg-gray-50 border rounded p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed max-h-96 overflow-auto">
                 {composedPrompt || 'Base prompt will appear here'}
               </div>
             </CardContent>

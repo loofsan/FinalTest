@@ -1,6 +1,4 @@
 {
-  "/api/tts/route": "app/api/tts/route.js",
-  "/practice/[scenarioId]/page": "app/practice/[scenarioId]/page.js",
-  "/scenarios/page": "app/scenarios/page.js",
-  "/page": "app/page.js"
+  "/api/extract-text/route": "app/api/extract-text/route.js",
+  "/practice/[scenarioId]/setup/page": "app/practice/[scenarioId]/setup/page.js"
 }
