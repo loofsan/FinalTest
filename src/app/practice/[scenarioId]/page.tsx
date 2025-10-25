@@ -73,27 +73,27 @@ export default function PracticePage({ params }: PracticePageProps) {
     localStorage.setItem('tts-enabled', JSON.stringify(ttsEnabled));
   }, [ttsEnabled]);
 
-  // Load custom time limit from setup (if any)
+  // Load custom time limit from setup (if any). Guard against React Strict Mode double-invoke.
+  const hasLoadedCustomConfigRef = useRef(false);
   useEffect(() => {
     if (!scenario) return;
+    if (hasLoadedCustomConfigRef.current) return;
+    hasLoadedCustomConfigRef.current = true;
     try {
       const key = `practice-config-${scenario.id}`;
       const raw = localStorage.getItem(key);
-      if (!raw) {
-        setCustomDurationSec(null);
-      } else {
+      if (raw) {
         const parsed = JSON.parse(raw);
         const secs = Number(parsed?.timeLimitSeconds);
         if (Number.isFinite(secs) && secs >= 0) {
           setCustomDurationSec(secs);
-        } else {
-          setCustomDurationSec(null);
         }
         // Apply-once semantics so stale configs don't leak into future sessions
         localStorage.removeItem(key);
       }
+      // If there is no raw item, keep current state (default null)
     } catch {
-      setCustomDurationSec(null);
+      // Ignore malformed config; keep default/null
     }
   }, [scenario]);
 
