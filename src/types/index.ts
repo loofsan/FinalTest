@@ -63,3 +63,21 @@ export interface PresentationalFlow {
   conclusion: FlowSection;
   qa: FlowSection;
 }
+
+// Talking points for scenario guidance
+export interface TalkingPoint {
+  id: string;
+  text: string;
+  importance: number; // 1 (low) to 5 (high)
+}
+
+// Persisted setup context handed off to practice page
+export interface SetupContext {
+  scenarioId: string;
+  extraDetails: string;
+  timeLimitMinutes: number; // 0 disables timer
+  extractedHash: string | null; // hash of extracted.text, not the text itself
+  talkingPoints: TalkingPoint[] | null;
+  flow: PresentationalFlow | null;
+  updatedAt: number; // epoch ms
+}

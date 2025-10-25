@@ -10,7 +10,7 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Clock, Users, FileText, Image, Presentation, ChevronUp, ChevronDown, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { getScenarioById } from "@/lib/scenarios";
-import type { PresentationalFlow, FlowSection } from "@/types";
+import type { PresentationalFlow, FlowSection, TalkingPoint, SetupContext } from "@/types";
 import { Slider } from "@/components/ui/slider";
 
 function SectionEditor({ section, onChange }: { section: FlowSection; onChange: (next: FlowSection) => void }) {
@@ -133,7 +133,6 @@ export default function SetupPage({ params }: SetupPageProps) {
     | null
   >(null);
 
-  type TalkingPoint = { id: string; text: string; importance: number };
   const [talkingPoints, setTalkingPoints] = useState<TalkingPoint[] | null>(null);
   const [tpLoading, setTpLoading] = useState<boolean>(false);
   const [tpError, setTpError] = useState<string | null>(null);
@@ -146,6 +145,70 @@ export default function SetupPage({ params }: SetupPageProps) {
   const [flowError, setFlowError] = useState<string | null>(null);
   const [flowEdited, setFlowEdited] = useState<boolean>(false);
   const [flowSavedAt, setFlowSavedAt] = useState<number | null>(null);
+
+  const STORAGE_KEY = useMemo(() => `practice-setup-${scenario.id}`,[scenario.id]);
+
+  const hashString = (input: string): string => {
+    // FNV-1a 32-bit
+    let hash = 0x811c9dc5;
+    for (let i = 0; i < input.length; i++) {
+      hash ^= input.charCodeAt(i);
+      hash = Math.imul(hash, 0x01000193);
+    }
+    return (hash >>> 0).toString(16);
+  };
+
+  // Load any saved setup context for this scenario
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(STORAGE_KEY);
+      if (!raw) return;
+      const saved = JSON.parse(raw) as SetupContext;
+      if (saved.scenarioId !== scenario.id) return;
+      setExtraDetails(saved.extraDetails || "");
+      setTimeLimitMinutes(Math.max(0, Number(saved.timeLimitMinutes || 0)));
+      setTalkingPoints(saved.talkingPoints || null);
+      setFlow(saved.flow || null);
+    } catch {
+      // ignore
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [STORAGE_KEY]);
+
+  // Persist setup context whenever key inputs change
+  useEffect(() => {
+    const payload: SetupContext = {
+      scenarioId: scenario.id,
+      extraDetails,
+      timeLimitMinutes,
+      extractedHash: extracted?.text ? hashString(extracted.text) : null,
+      talkingPoints,
+      flow,
+      updatedAt: Date.now(),
+    };
+    try {
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {
+      // ignore quota errors
+    }
+  }, [STORAGE_KEY, scenario.id, extraDetails, timeLimitMinutes, extracted, talkingPoints, flow]);
+
+  const handleStartPractice = () => {
+    // ensure latest save, then navigate
+    try {
+      const payload: SetupContext = {
+        scenarioId: scenario.id,
+        extraDetails,
+        timeLimitMinutes,
+        extractedHash: extracted?.text ? hashString(extracted.text) : null,
+        talkingPoints,
+        flow,
+        updatedAt: Date.now(),
+      };
+      localStorage.setItem(STORAGE_KEY, JSON.stringify(payload));
+    } catch {}
+    router.push(`/practice/${scenario.id}`);
+  };
 
   const handleFileChange = async (file: File | null) => {
     setSelectedFile(file);
@@ -416,7 +479,7 @@ export default function SetupPage({ params }: SetupPageProps) {
 
               {/* Actions */}
               <div className="flex flex-col sm:flex-row sm:items-center sm:space-x-3 space-y-3 sm:space-y-0 pt-2">
-                <Button disabled className="w-full sm:w-auto">Start Practice</Button>
+                <Button onClick={handleStartPractice} className="w-full sm:w-auto">Start Practice</Button>
                 <Link href={`/practice/${scenario.id}`} className="text-sm text-blue-600 hover:underline">
                   Skip setup and start now
                 </Link>

@@ -9,7 +9,7 @@ import { Switch } from '@/components/ui/switch';
 import { getScenarioById, generateAgents } from '@/lib/scenarios';
 import { generateAgentResponse, getResponseDelay, calculateScore } from '@/lib/agent-responses';
 import { ttsService } from '@/lib/tts-service';
-import { Message, Agent, DifficultyLevel } from '@/types';
+import { Message, Agent, DifficultyLevel, SetupContext } from '@/types';
 import { Mic, MicOff, Video, VideoOff, Phone, Clock, Users as UsersIcon, ArrowLeft, Settings, Check } from 'lucide-react';
 import { formatTime } from '@/lib/utils';
 
@@ -44,6 +44,7 @@ export default function PracticePage({ params }: PracticePageProps) {
   const [audioDevices, setAudioDevices] = useState<MediaDeviceInfo[]>([]);
   const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState<string>('');
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState<string>('');
+  const [setupContext, setSetupContext] = useState<SetupContext | null>(null);
   
   // TTS State - simplified to just enabled/disabled
   const [ttsEnabled, setTtsEnabled] = useState(() => {
@@ -95,6 +96,22 @@ export default function PracticePage({ params }: PracticePageProps) {
       console.error('Error enumerating devices:', error);
     }
   };
+  // Load setup context from localStorage
+  useEffect(() => {
+    if (!scenario) return;
+    try {
+      const key = `practice-setup-${scenario.id}`;
+      const raw = localStorage.getItem(key);
+      if (!raw) return;
+      const ctx = JSON.parse(raw) as SetupContext;
+      if (ctx.scenarioId === scenario.id) {
+        setSetupContext(ctx);
+      }
+    } catch {
+      // ignore
+    }
+  }, [scenario]);
+
 
   // Initialize camera stream
   const startCamera = async (deviceId?: string) => {
@@ -421,12 +438,17 @@ export default function PracticePage({ params }: PracticePageProps) {
             Exit
           </Button>
           <h1 className="text-white font-semibold">{scenario.title}</h1>
+          {setupContext && (
+            <span className="ml-2 px-2 py-0.5 text-xs rounded bg-gray-700 text-gray-300">
+              Setup loaded{setupContext.talkingPoints ? ` • ${setupContext.talkingPoints.length} pts` : ''}{setupContext.flow ? ' • flow' : ''}
+            </span>
+          )}
         </div>
         
         <div className="flex items-center space-x-6 text-gray-300 text-sm">
           <div className="flex items-center">
             <Clock className="w-4 h-4 mr-2" />
-            {formatTime(timeElapsed)} / {formatTime(scenario.duration)}
+            {formatTime(timeElapsed)} / {formatTime(setupContext?.timeLimitMinutes ? setupContext.timeLimitMinutes * 60 : scenario.duration)}
           </div>
           <div className="flex items-center">
             <UsersIcon className="w-4 h-4 mr-2" />
