@@ -422,9 +422,16 @@ export default function SetupPage({ params }: SetupPageProps) {
                     if (!scenario) return;
                     const secs = Math.max(0, Math.floor(Number(timeLimitMinutes) * 60));
                     try {
+                      // store ephemeral timing config
                       localStorage.setItem(
                         `practice-config-${scenario.id}`,
                         JSON.stringify({ timeLimitSeconds: secs })
+                      );
+                      // store ephemeral agent prompt context (user extras and edited talking points)
+                      const tp = (talkingPoints || []).map((p) => ({ text: p.text || '', importance: Number(p.importance) || 3 }));
+                      localStorage.setItem(
+                        `practice-context-${scenario.id}`,
+                        JSON.stringify({ userExtras: extraDetails || '', talkingPoints: tp })
                       );
                     } catch {}
                     router.push(`/practice/${scenario.id}`);

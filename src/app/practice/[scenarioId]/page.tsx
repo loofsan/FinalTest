@@ -7,7 +7,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogDescription } f
 import { Label } from '@/components/ui/label';
 import { Switch } from '@/components/ui/switch';
 import { getScenarioById, generateAgents } from '@/lib/scenarios';
-import { generateAgentResponse, getResponseDelay, calculateScore } from '@/lib/agent-responses';
+import { generateAgentResponse, getResponseDelay, calculateScore, AgentPromptContext } from '@/lib/agent-responses';
 import { ttsService } from '@/lib/tts-service';
 import { Message, Agent, DifficultyLevel } from '@/types';
 import { Mic, MicOff, Video, VideoOff, Phone, Clock, Users as UsersIcon, ArrowLeft, Settings, Check } from 'lucide-react';
@@ -45,6 +45,8 @@ export default function PracticePage({ params }: PracticePageProps) {
   const [selectedVideoDeviceId, setSelectedVideoDeviceId] = useState<string>('');
   const [selectedAudioDeviceId, setSelectedAudioDeviceId] = useState<string>('');
   const [customDurationSec, setCustomDurationSec] = useState<number | null>(null);
+  const [userExtrasForContext, setUserExtrasForContext] = useState<string>('');
+  const [talkingPointsForContext, setTalkingPointsForContext] = useState<Array<{ text: string; importance: number }>>([]);
   
   // TTS State - simplified to just enabled/disabled
   const [ttsEnabled, setTtsEnabled] = useState(() => {
@@ -72,19 +74,42 @@ export default function PracticePage({ params }: PracticePageProps) {
       const raw = localStorage.getItem(key);
       if (!raw) {
         setCustomDurationSec(null);
-        return;
-      }
-      const parsed = JSON.parse(raw);
-      const secs = Number(parsed?.timeLimitSeconds);
-      if (Number.isFinite(secs) && secs >= 0) {
-        setCustomDurationSec(secs);
       } else {
-        setCustomDurationSec(null);
+        const parsed = JSON.parse(raw);
+        const secs = Number(parsed?.timeLimitSeconds);
+        if (Number.isFinite(secs) && secs >= 0) {
+          setCustomDurationSec(secs);
+        } else {
+          setCustomDurationSec(null);
+        }
+        // Apply-once semantics so stale configs don't leak into future sessions
+        localStorage.removeItem(key);
       }
-      // Apply-once semantics so stale configs don't leak into future sessions
-      localStorage.removeItem(key);
     } catch {
       setCustomDurationSec(null);
+    }
+  }, [scenario]);
+
+  // Load agent prompt context (user extras, talking points) from setup (ephemeral)
+  useEffect(() => {
+    if (!scenario) return;
+    try {
+      const ctxKey = `practice-context-${scenario.id}`;
+      const rawCtx = localStorage.getItem(ctxKey);
+      if (rawCtx) {
+        const parsed = JSON.parse(rawCtx) as {
+          userExtras?: string;
+          talkingPoints?: Array<{ text: string; importance: number }>;
+        };
+        setUserExtrasForContext(parsed?.userExtras || '');
+        setTalkingPointsForContext(
+          Array.isArray(parsed?.talkingPoints) ? parsed!.talkingPoints!.slice(0, 20) : []
+        );
+        // one-time use to avoid leaking into future sessions
+        localStorage.removeItem(ctxKey);
+      }
+    } catch {
+      // ignore malformed context
     }
   }, [scenario]);
 
@@ -309,8 +334,20 @@ export default function PracticePage({ params }: PracticePageProps) {
     const randomAgent = agents[Math.floor(Math.random() * agents.length)];
     
     const timer = setTimeout(() => {
-      const conversationHistory = messages.map(m => m.content);
-      const response = generateAgentResponse(scenario.type, randomAgent, difficulty, conversationHistory);
+      const conversationHistory = messages.map(m => (m.isUser ? `You: ${m.content}` : `${m.agentName}: ${m.content}`));
+      const ctx: AgentPromptContext = {
+        scenarioBasePrompt: scenario.basePrompt,
+        userExtras: userExtrasForContext,
+        talkingPoints: talkingPointsForContext,
+        presentational: scenario.presentational,
+      };
+      const response = generateAgentResponse(
+        scenario.type,
+        randomAgent,
+        difficulty,
+        conversationHistory,
+        ctx
+      );
       addAgentMessage(randomAgent, response);
       
       // Schedule next response
