@@ -49,3 +49,17 @@ export interface PracticeSession {
   score: number;
   difficulty: DifficultyLevel;
 }
+
+// Presentational flow types for structured presentation plans
+export interface FlowSection {
+  id: string;
+  title: string;
+  goals: string[];
+}
+
+export interface PresentationalFlow {
+  intro: FlowSection;
+  sections: FlowSection[];
+  conclusion: FlowSection;
+  qa: FlowSection;
+}
