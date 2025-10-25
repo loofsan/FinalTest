@@ -1,5 +1,4 @@
 import { NextRequest, NextResponse } from "next/server";
-import pdfParse from "pdf-parse";
 
 export const runtime = "nodejs";
 
@@ -29,7 +28,11 @@ export async function POST(request: NextRequest) {
     const arrayBuffer = await (file as File).arrayBuffer();
     const buffer = Buffer.from(arrayBuffer);
 
-    const result = await pdfParse(buffer);
+    // pdf-parse is a CommonJS module; avoid default import issues under Next bundler
+    const pdfModule = (await import("pdf-parse")) as any;
+    const parsePdf = (pdfModule?.default ?? pdfModule) as (data: Buffer | Uint8Array) => Promise<any>;
+
+    const result = await parsePdf(buffer);
     const text = result.text || "";
     const pages = (result as any).numpages ?? (result as any).info?.Pages ?? 0;
 
