@@ -27,6 +27,10 @@ export default function SetupPage({ params }: SetupPageProps) {
     return Math.max(0, Math.floor(s / 60));
   });
 
+  const composedPrompt = `${scenario?.basePrompt ?? ''}${
+    extraDetails.trim() ? `\n\nExtra details from user:\n${extraDetails.trim()}` : ''
+  }`;
+
   if (!scenario) {
     return (
       <div className="min-h-screen flex items-center justify-center">
@@ -156,9 +160,35 @@ export default function SetupPage({ params }: SetupPageProps) {
                   </div>
                   <div>{Math.floor((scenario.duration ?? 0) / 60)} min</div>
                 </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center text-gray-600">Vibe</div>
+                  <div className="capitalize">{scenario.vibe}</div>
+                </div>
+                <div className="flex items-center justify-between">
+                  <div className="flex items-center text-gray-600">Presentational</div>
+                  <div>{scenario.presentational ? 'Yes' : 'No'}</div>
+                </div>
                 <div className="pt-2 text-xs text-gray-500">
                   The timer you set in this setup replaces the default duration.
                 </div>
+              </div>
+            </CardContent>
+          </Card>
+
+          {/* Right: Prompt preview */}
+          <Card className="lg:col-span-1">
+            <CardHeader>
+              <CardTitle>Prompt Preview</CardTitle>
+              <CardDescription>
+                Base prompt combined with your extra details
+              </CardDescription>
+            </CardHeader>
+            <CardContent>
+              <div className="text-xs text-gray-500 mb-2">
+                Updates live as you edit extra details
+              </div>
+              <div className="bg-gray-50 border rounded p-3 text-sm text-gray-800 whitespace-pre-wrap leading-relaxed">
+                {composedPrompt || 'Base prompt will appear here'}
               </div>
             </CardContent>
           </Card>

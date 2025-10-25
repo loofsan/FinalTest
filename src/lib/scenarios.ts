@@ -9,7 +9,11 @@ export const scenarios: Scenario[] = [
     participantCount: 4,
     duration: 300,
     icon: '🎉',
-    difficulty: 'easy'
+    difficulty: 'easy',
+    basePrompt:
+      'You are at a casual social gathering. Your goal is to initiate and sustain friendly, light conversation. Ask open-ended questions, find common interests, and keep the tone positive and inclusive.',
+    vibe: 'casual',
+    presentational: false
   },
   {
     id: 'classroom',
@@ -19,7 +23,11 @@ export const scenarios: Scenario[] = [
     participantCount: 2,
     duration: 180,
     icon: '📚',
-    difficulty: 'medium'
+    difficulty: 'medium',
+    basePrompt:
+      'You are a student called upon in class. Explain your thinking clearly, acknowledge uncertainty when needed, and engage constructively with the instructor and peers. Be concise and respectful.',
+    vibe: 'academic',
+    presentational: false
   },
   {
     id: 'job-interview',
@@ -29,7 +37,11 @@ export const scenarios: Scenario[] = [
     participantCount: 2,
     duration: 600,
     icon: '💼',
-    difficulty: 'hard'
+    difficulty: 'hard',
+    basePrompt:
+      'You are the candidate in a professional job interview. Provide structured, concise answers (consider STAR: Situation, Task, Action, Result). Demonstrate motivation, relevant skills, and cultural fit. Ask clarifying questions when appropriate.',
+    vibe: 'professional',
+    presentational: false
   },
   {
     id: 'de-escalation',
@@ -39,7 +51,11 @@ export const scenarios: Scenario[] = [
     participantCount: 3,
     duration: 240,
     icon: '🤝',
-    difficulty: 'hard'
+    difficulty: 'hard',
+    basePrompt:
+      'You are de-escalating a tense situation. Stay calm, listen actively, acknowledge emotions, and guide the conversation toward shared goals and a constructive next step. Avoid blame; use neutral language.',
+    vibe: 'tense',
+    presentational: false
   },
   {
     id: 'presentation',
@@ -49,7 +65,11 @@ export const scenarios: Scenario[] = [
     participantCount: 5,
     duration: 420,
     icon: '🎤',
-    difficulty: 'medium'
+    difficulty: 'medium',
+    basePrompt:
+      'You are delivering a clear, engaging class presentation. Structure with an intro, 2–4 key sections with transitions, and a brief conclusion. Keep explanations accessible and invite questions.',
+    vibe: 'academic',
+    presentational: true
   }
 ];
 
