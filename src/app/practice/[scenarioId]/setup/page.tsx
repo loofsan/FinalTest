@@ -27,6 +27,50 @@ export default function SetupPage({ params }: SetupPageProps) {
     return Math.max(0, Math.floor(s / 60));
   });
 
+  const [isExtracting, setIsExtracting] = useState(false);
+  const [extractionError, setExtractionError] = useState<string | null>(null);
+  const [extracted, setExtracted] = useState<
+    | { text: string; meta: { pages: number; chars: number } }
+    | null
+  >(null);
+
+  const handleFileChange = async (file: File | null) => {
+    setSelectedFile(file);
+    setExtracted(null);
+    setExtractionError(null);
+
+    if (!file) return;
+
+    const isPdf =
+      file.type === "application/pdf" || /\.pdf$/i.test(file.name || "");
+
+    // Phase 3: only PDF support. PPTX will be added in Phase 4.
+    if (!isPdf) {
+      setExtractionError("Only PDF is supported in this phase. PPTX coming next.");
+      return;
+    }
+
+    try {
+      setIsExtracting(true);
+      const form = new FormData();
+      form.append("file", file);
+      const res = await fetch("/api/extract-text", {
+        method: "POST",
+        body: form,
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setExtractionError(data?.error || "Failed to extract text");
+        return;
+      }
+      setExtracted(data);
+    } catch (err) {
+      setExtractionError("Network error while extracting text");
+    } finally {
+      setIsExtracting(false);
+    }
+  };
+
   const composedPrompt = `${scenario?.basePrompt ?? ''}${
     extraDetails.trim() ? `\n\nExtra details from user:\n${extraDetails.trim()}` : ''
   }`;
@@ -76,16 +120,39 @@ export default function SetupPage({ params }: SetupPageProps) {
                   id="material"
                   type="file"
                   accept=".pdf,application/pdf,.pptx,application/vnd.openxmlformats-officedocument.presentationml.presentation"
-                  onChange={(e) => setSelectedFile(e.target.files?.[0] ?? null)}
+                  onChange={(e) => handleFileChange(e.target.files?.[0] ?? null)}
                 />
                 {selectedFile && (
                   <p className="text-sm text-gray-600 mt-2">
                     Selected: <span className="font-medium">{selectedFile.name}</span> ({Math.ceil(selectedFile.size / 1024)} KB)
                   </p>
                 )}
-                <p className="text-xs text-gray-500 mt-2">
-                  Extraction and analysis will be added in later steps.
-                </p>
+                {isExtracting && (
+                  <p className="text-xs text-gray-500 mt-2">Extracting text from PDF…</p>
+                )}
+                {extractionError && (
+                  <p className="text-xs text-red-600 mt-2">{extractionError}</p>
+                )}
+                {!isExtracting && extracted && (
+                  <div className="mt-4 border rounded-md p-3 bg-gray-50">
+                    <div className="text-sm font-medium mb-1">Extraction Summary</div>
+                    <div className="text-xs text-gray-600 mb-2">
+                      Pages: <span className="font-semibold">{extracted.meta.pages}</span> · Characters: <span className="font-semibold">{extracted.meta.chars}</span>
+                    </div>
+                    <div>
+                      <div className="text-xs text-gray-500 mb-1">Preview (first 800 chars)</div>
+                      <div className="text-sm whitespace-pre-wrap leading-relaxed max-h-64 overflow-auto bg-white border rounded p-2">
+                        {extracted.text.slice(0, 800)}
+                        {extracted.meta.chars > 800 ? "…" : ""}
+                      </div>
+                    </div>
+                  </div>
+                )}
+                {!selectedFile && (
+                  <p className="text-xs text-gray-500 mt-2">
+                    Optional: upload a PDF for text extraction. PPTX support arrives in the next phase.
+                  </p>
+                )}
               </div>
 
               {/* Extra scenario details */}
