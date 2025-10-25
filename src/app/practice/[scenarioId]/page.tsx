@@ -59,6 +59,13 @@ export default function PracticePage({ params }: PracticePageProps) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const videoStreamRef = useRef<MediaStream | null>(null);
   const audioStreamRef = useRef<MediaStream | null>(null);
+  const mediaRecorderRef = useRef<MediaRecorder | null>(null);
+  const audioChunksRef = useRef<Blob[]>([]);
+
+  const [isRecording, setIsRecording] = useState(false);
+  const [transcribing, setTranscribing] = useState(false);
+  const [transcriptText, setTranscriptText] = useState<string | null>(null);
+  const [transcribeError, setTranscribeError] = useState<string | null>(null);
 
   // Update TTS service when enabled state changes
   useEffect(() => {
@@ -201,9 +208,98 @@ export default function PracticePage({ params }: PracticePageProps) {
       
       // Enumerate devices after getting permission
       await enumerateDevices();
+
+      // Start audio recording once the microphone stream is available
+      if (!mediaRecorderRef.current && typeof window !== 'undefined' && 'MediaRecorder' in window) {
+        try {
+          startRecording();
+        } catch (err) {
+          console.error('Failed to start recording:', err);
+        }
+      }
     } catch (error) {
       console.error('Error accessing microphone:', error);
       setMicError('Unable to access microphone. Please check permissions.');
+    }
+  };
+
+  // Start audio recording using MediaRecorder
+  const startRecording = () => {
+    if (!audioStreamRef.current || mediaRecorderRef.current) return;
+    try {
+      const preferredMime = 'audio/webm;codecs=opus';
+      const canUsePreferred = (window as any).MediaRecorder?.isTypeSupported?.(preferredMime);
+      const options: MediaRecorderOptions = canUsePreferred ? { mimeType: preferredMime } : {};
+      const recorder = new MediaRecorder(audioStreamRef.current!, options);
+      audioChunksRef.current = [];
+      recorder.ondataavailable = (event: BlobEvent) => {
+        if (event.data && event.data.size > 0) {
+          audioChunksRef.current.push(event.data);
+        }
+      };
+      recorder.onstart = () => setIsRecording(true);
+      recorder.onstop = () => setIsRecording(false);
+      // gather chunks periodically to avoid huge single blob
+      recorder.start(1000);
+      mediaRecorderRef.current = recorder;
+      console.log('MediaRecorder started');
+    } catch (err) {
+      console.error('Error starting MediaRecorder:', err);
+    }
+  };
+
+  // Stop recording and return the audio blob
+  const stopRecordingAndGetBlob = (): Promise<Blob | null> => {
+    return new Promise((resolve) => {
+      const recorder = mediaRecorderRef.current;
+      if (!recorder) {
+        resolve(null);
+        return;
+      }
+      const finalize = () => {
+        const type = recorder.mimeType || 'audio/webm';
+        const blob = new Blob(audioChunksRef.current, { type });
+        audioChunksRef.current = [];
+        mediaRecorderRef.current = null;
+        resolve(blob);
+      };
+      if (recorder.state !== 'inactive') {
+        recorder.addEventListener('stop', finalize, { once: true });
+        try {
+          recorder.stop();
+        } catch (e) {
+          console.warn('MediaRecorder stop failed:', e);
+          finalize();
+        }
+      } else {
+        finalize();
+      }
+    });
+  };
+
+  const uploadAndTranscribe = async (blob: Blob | null) => {
+    if (!blob || blob.size === 0) return null;
+    setTranscribing(true);
+    setTranscribeError(null);
+    try {
+      const file = new File([blob], 'session.webm', { type: blob.type || 'audio/webm' });
+      const form = new FormData();
+      form.append('file', file);
+      const res = await fetch('/api/transcribe', { method: 'POST', body: form });
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}));
+        throw new Error(err.error || `Transcription failed: ${res.status}`);
+      }
+      const data = await res.json();
+      const text = data?.transcript ? String(data.transcript) : '';
+      setTranscriptText(text);
+      return text;
+    } catch (e: any) {
+      console.error('Transcription error:', e);
+      setTranscribeError(e?.message || 'Failed to transcribe audio');
+      return null;
+    } finally {
+      setTranscribing(false);
     }
   };
 
@@ -215,6 +311,10 @@ export default function PracticePage({ params }: PracticePageProps) {
     startMicrophone();
 
     return () => {
+      // Stop recording if still active
+      if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
+        try { mediaRecorderRef.current.stop(); } catch {}
+      }
       if (videoStreamRef.current) {
         videoStreamRef.current.getTracks().forEach(track => track.stop());
       }
@@ -386,14 +486,6 @@ export default function PracticePage({ params }: PracticePageProps) {
     agentResponseTimers.current.forEach(timer => clearTimeout(timer));
     agentResponseTimers.current = [];
     
-    // Stop all media streams
-    if (videoStreamRef.current) {
-      videoStreamRef.current.getTracks().forEach(track => track.stop());
-    }
-    if (audioStreamRef.current) {
-      audioStreamRef.current.getTracks().forEach(track => track.stop());
-    }
-    
     // Stop all TTS audio
     ttsService.stopAll();
     
@@ -402,16 +494,42 @@ export default function PracticePage({ params }: PracticePageProps) {
     const score = calculateScore(userMessages, timeElapsed, difficulty);
     setFinalScore(score);
     
-    // Save to localStorage
+    // Save initial session (transcript will be updated after transcription completes)
     const sessions = JSON.parse(localStorage.getItem('practice-sessions') || '[]');
     sessions.push({
       scenarioId: scenario?.id,
       date: new Date().toISOString(),
       score,
       duration: timeElapsed,
-      difficulty
+      difficulty,
+      transcript: null,
     });
     localStorage.setItem('practice-sessions', JSON.stringify(sessions));
+
+    // Stop recording and transcribe
+    stopRecordingAndGetBlob()
+      .then((blob) => uploadAndTranscribe(blob))
+      .then((text) => {
+        try {
+          const sessionsAfter = JSON.parse(localStorage.getItem('practice-sessions') || '[]');
+          if (sessionsAfter.length > 0) {
+            sessionsAfter[sessionsAfter.length - 1].transcript = text || null;
+            localStorage.setItem('practice-sessions', JSON.stringify(sessionsAfter));
+          }
+        } catch {}
+      })
+      .catch((e) => {
+        console.warn('Recording/transcription chain failed:', e);
+      })
+      .finally(() => {
+        // Stop all media streams after we have stopped the recorder
+        if (videoStreamRef.current) {
+          videoStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+        if (audioStreamRef.current) {
+          audioStreamRef.current.getTracks().forEach(track => track.stop());
+        }
+      });
   };
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
