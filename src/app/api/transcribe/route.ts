@@ -3,7 +3,16 @@ import { GoogleGenerativeAI } from '@google/generative-ai';
 
 export const runtime = 'nodejs';
 
-const TRANSCRIBE_ENABLED = process.env.TRANSCRIBE_ENABLED;
+// Parse boolean-ish env values. Default to enabled when not set.
+function parseBooleanEnv(value: string | undefined, defaultValue: boolean): boolean {
+  if (value === undefined || value === null) return defaultValue;
+  const normalized = String(value).trim().toLowerCase();
+  if (['1', 'true', 'yes', 'on', 'enabled'].includes(normalized)) return true;
+  if (['0', 'false', 'no', 'off', 'disabled'].includes(normalized)) return false;
+  return defaultValue;
+}
+
+const TRANSCRIBE_ENABLED = parseBooleanEnv(process.env.TRANSCRIBE_ENABLED, true);
 const TRANSCRIBE_PROVIDER = (process.env.TRANSCRIBE_PROVIDER || 'gemini').toLowerCase();
 const MAX_MB = parseInt(process.env.TRANSCRIBE_MAX_MB || '25', 10);
 
@@ -78,7 +87,7 @@ async function transcribeWithGemini(file: File, mimeType: string): Promise<strin
 export async function POST(request: NextRequest) {
   try {
     if (!TRANSCRIBE_ENABLED) {
-      return NextResponse.json({ error: 'Transcription is disabled' }, { status: 500 });
+      return NextResponse.json({ error: 'Transcription is disabled' }, { status: 503 });
     }
 
     const form = await request.formData();
@@ -89,7 +98,8 @@ export async function POST(request: NextRequest) {
     }
 
     const filename = (file as File).name || 'audio.webm';
-    const mimeType = (file as File).type || '';
+    const mimeTypeRaw = (file as File).type || '';
+    const mimeType = mimeTypeRaw.split(';')[0]?.trim().toLowerCase() || '';
     const sizeBytes = (file as File).size || 0;
 
     const allowedTypes = new Set([
@@ -107,9 +117,13 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: `File too large. Max ${MAX_MB} MB` }, { status: 413 });
     }
 
-    if (mimeType && !allowedTypes.has(mimeType)) {
-      // Allow if empty mime type from some browsers
-      return NextResponse.json({ error: `Unsupported audio type: ${mimeType}` }, { status: 415 });
+    if (mimeType) {
+      // Accept most audio types, including codec-suffixed webm/ogg. Keep a conservative allow list for known types.
+      const isLikelyAudio = mimeType.startsWith('audio/');
+      const isAllowed = isLikelyAudio && (allowedTypes.has(mimeType) || ['audio/webm', 'audio/ogg'].some(t => mimeType.startsWith(t)));
+      if (!isAllowed) {
+        return NextResponse.json({ error: `Unsupported audio type: ${mimeTypeRaw}` }, { status: 415 });
+      }
     }
 
     let transcript: string;
