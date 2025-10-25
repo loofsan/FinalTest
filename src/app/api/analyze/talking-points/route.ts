@@ -39,7 +39,7 @@ export async function POST(request: NextRequest) {
     const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
 
     const instructions = `You are an expert speech coach.
-Given the CONTEXT, produce ${countMin}–${countMax} succinct talking points with importance weights.
+Given the CONTEXT, produce ${countMin}–${countMax} analytical questions with importance weights.
 
 Rules:
 - Each point: { "text": string (<= 140 chars), "importance": integer 1-5 }.

@@ -293,7 +293,7 @@ export default function SetupPage({ params }: SetupPageProps) {
                     <Button
                       type="button"
                       size="sm"
-                      variant="secondary"
+                      variant="default"
                       onClick={() => setTpSavedAt(Date.now())}
                       disabled={!talkingPoints}
                     >
