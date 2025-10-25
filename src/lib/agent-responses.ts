@@ -1,5 +1,13 @@
 import { ScenarioType, Agent, DifficultyLevel } from '@/types';
 
+// Lightweight integration context for agent prompting
+export interface AgentPromptContext {
+  scenarioBasePrompt: string;
+  userExtras?: string;
+  talkingPoints?: Array<{ text: string; importance: number }>;
+  presentational?: boolean;
+}
+
 // Lead-up phrases for different scenarios
 const leadUpPhrases: Record<ScenarioType, string[]> = {
   party: [
@@ -113,6 +121,91 @@ const followUpQuestions: Record<ScenarioType, string[]> = {
   ]
 };
 
+// --- Utilities for on-topic question generation ---
+const STOP_WORDS = new Set([
+  'the','a','an','and','or','but','if','then','else','for','to','of','in','on','at','by','with','from','as','is','are','was','were','be','been','being','it','this','that','these','those','i','you','he','she','we','they','me','him','her','us','them','my','your','his','her','our','their','mine','yours','ours','theirs','do','does','did','doing','have','has','had','having','so','not','no','yes','just','like'
+]);
+
+function tokenize(text: string): string[] {
+  return text
+    .toLowerCase()
+    .replace(/[^a-z0-9\s]/g, ' ')
+    .split(/\s+/)
+    .filter((w) => w.length >= 3 && !STOP_WORDS.has(w));
+}
+
+function lastUserUtterance(history: string[]): string | null {
+  if (!history?.length) return null;
+  // Prefer entries explicitly marked as user
+  for (let i = history.length - 1; i >= 0; i--) {
+    const content = history[i];
+    if (typeof content === 'string' && content.startsWith('You:')) {
+      return content.replace(/^You:\s*/, '').trim();
+    }
+  }
+  // Fallback: return last non-empty string
+  for (let i = history.length - 1; i >= 0; i--) {
+    const content = history[i];
+    if (content && typeof content === 'string' && content.trim()) return content.trim();
+  }
+  return null;
+}
+
+function pointAddressed(point: string, history: string[]): boolean {
+  if (!history?.length) return false;
+  const pointTokens = new Set(tokenize(point));
+  if (pointTokens.size === 0) return false;
+  const historyText = history.join(' \n ');
+  const histTokens = new Set(tokenize(historyText));
+  let overlap = 0;
+  for (const t of pointTokens) if (histTokens.has(t)) overlap++;
+  // Consider addressed if there is some overlap of keywords
+  return overlap >= Math.min(2, Math.max(1, Math.floor(pointTokens.size * 0.2)));
+}
+
+function chooseNextPoint(points: Array<{ text: string; importance: number }>, history: string[]) {
+  if (!Array.isArray(points) || points.length === 0) return null;
+  const unaddressed = points
+    .filter((p) => p && typeof p.text === 'string' && p.text.trim().length > 0)
+    .filter((p) => !pointAddressed(p.text, history))
+    .sort((a, b) => (b.importance || 0) - (a.importance || 0));
+  return unaddressed[0] || null;
+}
+
+function formatQuestionForPoint(
+  scenarioType: ScenarioType,
+  pointText: string,
+  presentational: boolean | undefined,
+  lastUtterance: string | null
+): string {
+  const base = pointText.trim().replace(/[?!.]+$/g, '');
+  const lastTokens = lastUtterance ? tokenize(lastUtterance) : [];
+  const salient = lastTokens.slice(0, 3); // up to 3 keywords to echo
+  const echo = salient.length ? `You mentioned ${salient.join(', ')}. ` : '';
+  if (presentational) {
+    // Tailor for presentational scenarios
+    const variants = [
+      `${echo}Where in your presentation will you cover "${base}"?`,
+      `${echo}How will you explain "${base}" to your audience?`,
+      `${echo}Could you outline how you plan to address "${base}"?`,
+    ];
+    return variants[Math.floor(Math.random() * variants.length)];
+  }
+  const variants = [
+    `${echo}Could you talk a bit about "${base}"?`,
+    `${echo}What are your thoughts on "${base}"?`,
+    `${echo}How are you thinking about "${base}" right now?`,
+    `${echo}Can you clarify your approach to "${base}"?`,
+  ];
+  return variants[Math.floor(Math.random() * variants.length)];
+}
+
+function maybeAddLeadUpText(scenarioType: ScenarioType, difficulty: DifficultyLevel, text: string): string {
+  if (!shouldAddLeadUp(difficulty)) return text;
+  const leadUp = getRandomLeadUp(scenarioType);
+  return `${leadUp} ${text}`;
+}
+
 const shouldAddLeadUp = (difficulty: DifficultyLevel): boolean => {
   const chances = {
     easy: 0.4,
@@ -132,27 +225,52 @@ export const generateAgentResponse = (
   scenarioType: ScenarioType,
   agent: Agent,
   difficulty: DifficultyLevel,
-  conversationHistory: string[]
+  conversationHistory: string[],
+  context?: AgentPromptContext
 ): string => {
-  const templates = responseTemplates[scenarioType];
-  const followUps = followUpQuestions[scenarioType];
-  
-  // Use follow-up questions if conversation has progressed
-  const pool = conversationHistory.length > 2 ? [...templates, ...followUps] : templates;
-  
-  const randomIndex = Math.floor(Math.random() * pool.length);
-  let response = pool[randomIndex];
-  
-  if (shouldAddLeadUp(difficulty)) {
-    const leadUp = getRandomLeadUp(scenarioType);
-    response = `${leadUp} ${response}`;
+  const presentational = context?.presentational;
+  const points = context?.talkingPoints || [];
+
+  // Prefer asking questions derived from highest-importance unaddressed talking points
+  const nextPoint = chooseNextPoint(points, conversationHistory);
+  let response: string | null = null;
+  if (nextPoint) {
+    response = formatQuestionForPoint(
+      scenarioType,
+      nextPoint.text,
+      presentational,
+      lastUserUtterance(conversationHistory)
+    );
   }
-  
-  // Add emotion prefix if agent has one (for TTS)
+
+  // If no talking points or all covered, ask a contextual follow-up grounded in user history
+  if (!response) {
+    const lastUtter = lastUserUtterance(conversationHistory);
+    const extrasText = `${context?.userExtras || ''} ${context?.scenarioBasePrompt || ''}`.trim();
+    const allTokens = tokenize(`${lastUtter || ''} ${extrasText}`);
+    if (allTokens.length > 0) {
+      const salient = Array.from(new Set(allTokens)).slice(0, 4).join(', ');
+      const base = salient ? `You mentioned ${salient}. ` : '';
+      const fu = followUpQuestions[scenarioType] || [];
+      const fallback = fu.length ? fu[Math.floor(Math.random() * fu.length)] : 'Could you elaborate?';
+      response = `${base}${fallback}`;
+    }
+  }
+
+  // As a final fallback, use existing templates but ensure it's a question to keep the agent asking rather than asserting
+  if (!response) {
+    const templates = responseTemplates[scenarioType] || [];
+    const followUps = followUpQuestions[scenarioType] || [];
+    const pool = conversationHistory.length > 2 ? [...templates, ...followUps] : templates;
+    const candidate = pool[Math.floor(Math.random() * Math.max(1, pool.length))] || 'Could you tell me more?';
+    response = /\?$/.test(candidate) ? candidate : `${candidate}?`;
+  }
+
+  // Add optional lead-up, then the emotion prefix for TTS
+  response = maybeAddLeadUpText(scenarioType, difficulty, response);
   if (agent.emotionPrefix) {
     response = `${agent.emotionPrefix} ${response}`;
   }
-  
   return response;
 };
 
