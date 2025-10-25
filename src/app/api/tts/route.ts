@@ -34,7 +34,7 @@ export async function POST(request: NextRequest) {
 
     // Parse request body
     const body = await request.json();
-    const { text, agentName } = body;
+    const { text, agentName, voiceId } = body;
 
     if (!text) {
       return NextResponse.json(
@@ -47,7 +47,7 @@ export async function POST(request: NextRequest) {
     const ttsRequestBody = {
       "text": text,
       "format": "mp3",
-      "reference_id": "bf322df2096a46f18c579d0baa36f41d"
+      "reference_id": voiceId || "bf322df2096a46f18c579d0baa36f41d"
     }
 
     // Make request to external TTS API

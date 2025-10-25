@@ -265,6 +265,7 @@ export default function PracticePage({ params }: PracticePageProps) {
         text: content,
         agentName: agent.name,
         messageId: newMessage.id,
+        voiceId: agent.voiceId
       });
     }
   };

@@ -24,6 +24,8 @@ export interface Agent {
   personality: string;
   avatar: string;
   role?: string;
+  voiceId?: string;
+  emotionPrefix?: string;
 }
 
 export interface Message {

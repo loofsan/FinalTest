@@ -1,4 +1,4 @@
-// File: C:\Users\devalto\Downloads\snapdev-receive\calhacks-2025\frontend\src\app\scenarios\page.tsx
+// File: C:\Lynn\frontend3\src\app\scenarios\page.tsx
 import * as entry from '../../../../src/app/scenarios/page.js'
 import type { ResolvingMetadata, ResolvingViewport } from 'next/dist/lib/metadata/types/metadata-interface.js'
 

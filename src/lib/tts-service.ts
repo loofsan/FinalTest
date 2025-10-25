@@ -2,6 +2,7 @@ export interface TTSRequest {
   text: string;
   agentName: string;
   messageId: string;
+  voiceId?: string;
 }
 
 export interface TTSQueueItem {
@@ -40,6 +41,7 @@ class TTSService {
         body: JSON.stringify({
           text: request.text,
           agentName: request.agentName,
+          voiceId: request.voiceId,
         }),
       });
 
