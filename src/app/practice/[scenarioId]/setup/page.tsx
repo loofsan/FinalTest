@@ -1,6 +1,6 @@
 "use client";
 
-import { use, useState } from "react";
+import { use, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Button } from "@/components/ui/button";
@@ -8,8 +8,9 @@ import { Card, CardContent, CardHeader, CardTitle, CardDescription } from "@/com
 import { Label } from "@/components/ui/label";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
-import { ArrowLeft, Clock, Users, FileText, Image, Presentation } from "lucide-react";
+import { ArrowLeft, Clock, Users, FileText, Image, Presentation, ChevronUp, ChevronDown, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { getScenarioById } from "@/lib/scenarios";
+import { Slider } from "@/components/ui/slider";
 
 interface SetupPageProps {
   params: Promise<{ scenarioId: string }>;
@@ -33,6 +34,13 @@ export default function SetupPage({ params }: SetupPageProps) {
     | { text: string; meta: { pages: number; chars: number; fileType?: string; processedBy?: string } }
     | null
   >(null);
+
+  type TalkingPoint = { id: string; text: string; importance: number };
+  const [talkingPoints, setTalkingPoints] = useState<TalkingPoint[] | null>(null);
+  const [tpLoading, setTpLoading] = useState<boolean>(false);
+  const [tpError, setTpError] = useState<string | null>(null);
+  const [tpEdited, setTpEdited] = useState<boolean>(false);
+  const [tpSavedAt, setTpSavedAt] = useState<number | null>(null);
 
   const handleFileChange = async (file: File | null) => {
     setSelectedFile(file);
@@ -62,11 +70,52 @@ export default function SetupPage({ params }: SetupPageProps) {
     }
   };
 
-  const composedPrompt = `${scenario?.basePrompt ?? ''}${
+  const composedPrompt = useMemo(() => `${scenario?.basePrompt ?? ''}${
     extraDetails.trim() ? `\n\nExtra details from user:\n${extraDetails.trim()}` : ''
   }${
     extracted ? `\n\nDocument content:\n${extracted.text.slice(0, 2000)}${extracted.text.length > 2000 ? '...' : ''}` : ''
-  }`;
+  }`, [scenario?.basePrompt, extraDetails, extracted]);
+
+  const canAddMorePoints = (talkingPoints?.length ?? 0) < 15;
+
+  const generateTalkingPoints = async (opts?: { force?: boolean }) => {
+    if (!scenario) return;
+    if (tpEdited && !opts?.force) return; // gate if user edited
+    try {
+      setTpLoading(true);
+      setTpError(null);
+      setTpSavedAt(null);
+      const res = await fetch("/api/analyze/talking-points", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          context: composedPrompt,
+          presentational: scenario.presentational,
+          countMin: 8,
+          countMax: 15,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setTpError(data?.error || "Failed to generate talking points");
+        return;
+      }
+      setTalkingPoints(data.points || []);
+      setTpEdited(false);
+    } catch (e) {
+      setTpError("Network error while generating talking points");
+    } finally {
+      setTpLoading(false);
+    }
+  };
+
+  // Auto-generate after extraction completes (once), unless user already edited
+  useEffect(() => {
+    if (extracted && !tpEdited && !talkingPoints && !tpLoading) {
+      void generateTalkingPoints();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extracted]);
 
   const getFileIcon = (file: File) => {
     const type = file.type;
@@ -219,6 +268,161 @@ export default function SetupPage({ params }: SetupPageProps) {
                 <Link href={`/practice/${scenario.id}`} className="text-sm text-blue-600 hover:underline">
                   Skip setup and start now
                 </Link>
+              </div>
+              {/* Talking points */}
+              <div className="pt-4">
+                <div className="flex items-center justify-between mb-2">
+                  <Label className="text-base">AI Talking Points</Label>
+                  <div className="flex items-center gap-2">
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="outline"
+                      onClick={() => {
+                        if (tpEdited) {
+                          const ok = window.confirm("Regenerate and overwrite your edits?");
+                          if (!ok) return;
+                        }
+                        generateTalkingPoints({ force: true });
+                      }}
+                      disabled={tpLoading}
+                    >
+                      <RefreshCw className={`w-4 h-4 mr-2 ${tpLoading ? 'animate-spin' : ''}`} />
+                      {talkingPoints ? 'Regenerate' : 'Generate'}
+                    </Button>
+                    <Button
+                      type="button"
+                      size="sm"
+                      variant="secondary"
+                      onClick={() => setTpSavedAt(Date.now())}
+                      disabled={!talkingPoints}
+                    >
+                      <Save className="w-4 h-4 mr-2" /> Save
+                    </Button>
+                  </div>
+                </div>
+                {tpError && (
+                  <p className="text-xs text-red-600 mb-2">{tpError}</p>
+                )}
+                {tpSavedAt && (
+                  <p className="text-xs text-green-600 mb-2">Saved.</p>
+                )}
+                {!talkingPoints && !tpLoading && (
+                  <p className="text-xs text-gray-500">Generate key points to guide your practice. You can edit and reorder them.</p>
+                )}
+                {tpLoading && (
+                  <p className="text-xs text-gray-500">Generating talking points…</p>
+                )}
+                {talkingPoints && (
+                  <div className="space-y-3">
+                    {talkingPoints.map((pt, idx) => (
+                      <div key={pt.id} className="border rounded-md p-3 bg-white">
+                        <div className="flex items-start gap-3">
+                          <div className="flex flex-col gap-1">
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                if (idx === 0) return;
+                                const next = [...talkingPoints];
+                                [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                setTalkingPoints(next);
+                                setTpEdited(true);
+                              }}
+                              disabled={idx === 0}
+                              aria-label="Move up"
+                            >
+                              <ChevronUp className="w-4 h-4" />
+                            </Button>
+                            <Button
+                              type="button"
+                              size="icon"
+                              variant="ghost"
+                              className="h-6 w-6"
+                              onClick={() => {
+                                if (idx === talkingPoints.length - 1) return;
+                                const next = [...talkingPoints];
+                                [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+                                setTalkingPoints(next);
+                                setTpEdited(true);
+                              }}
+                              disabled={idx === talkingPoints.length - 1}
+                              aria-label="Move down"
+                            >
+                              <ChevronDown className="w-4 h-4" />
+                            </Button>
+                          </div>
+                          <div className="flex-1">
+                            <Input
+                              value={pt.text}
+                              onChange={(e) => {
+                                const next = [...talkingPoints];
+                                next[idx] = { ...pt, text: e.target.value };
+                                setTalkingPoints(next);
+                                setTpEdited(true);
+                              }}
+                              placeholder={`Point ${idx + 1}`}
+                            />
+                            <div className="mt-2 flex items-center gap-3">
+                              <span className="text-xs text-gray-500">Importance</span>
+                              <div className="flex-1 max-w-xs">
+                                <Slider
+                                  value={[pt.importance]}
+                                  min={1}
+                                  max={5}
+                                  step={1}
+                                  onValueChange={([val]) => {
+                                    const next = [...talkingPoints];
+                                    next[idx] = { ...pt, importance: val } as TalkingPoint;
+                                    setTalkingPoints(next);
+                                    setTpEdited(true);
+                                  }}
+                                />
+                              </div>
+                              <span className="text-xs text-gray-600 w-5 text-center">{pt.importance}</span>
+                              <Button
+                                type="button"
+                                size="icon"
+                                variant="ghost"
+                                aria-label="Delete point"
+                                onClick={() => {
+                                  const next = talkingPoints.filter((p) => p.id !== pt.id);
+                                  setTalkingPoints(next);
+                                  setTpEdited(true);
+                                }}
+                              >
+                                <Trash2 className="w-4 h-4" />
+                              </Button>
+                            </div>
+                          </div>
+                        </div>
+                      </div>
+                    ))}
+                    <div>
+                      <Button
+                        type="button"
+                        variant="outline"
+                        size="sm"
+                        onClick={() => {
+                          if (!canAddMorePoints) return;
+                          setTalkingPoints([
+                            ...(talkingPoints || []),
+                            { id: crypto.randomUUID(), text: "", importance: 3 },
+                          ]);
+                          setTpEdited(true);
+                        }}
+                        disabled={!canAddMorePoints}
+                      >
+                        <Plus className="w-4 h-4 mr-2" /> Add point
+                      </Button>
+                      {!canAddMorePoints && (
+                        <span className="ml-2 text-xs text-gray-500">Maximum of 15 points.</span>
+                      )}
+                    </div>
+                  </div>
+                )}
               </div>
             </CardContent>
           </Card>
