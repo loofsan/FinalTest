@@ -10,7 +10,105 @@ import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
 import { ArrowLeft, Clock, Users, FileText, Image, Presentation, ChevronUp, ChevronDown, Plus, RefreshCw, Save, Trash2 } from "lucide-react";
 import { getScenarioById } from "@/lib/scenarios";
+import type { PresentationalFlow, FlowSection } from "@/types";
 import { Slider } from "@/components/ui/slider";
+
+function SectionEditor({ section, onChange }: { section: FlowSection; onChange: (next: FlowSection) => void }) {
+  return (
+    <div className="space-y-3">
+      <div>
+        <Label className="text-xs text-gray-600">Title</Label>
+        <Input
+          value={section.title}
+          onChange={(e) => onChange({ ...section, title: e.target.value })}
+          placeholder="Section title"
+          className="mt-1"
+        />
+      </div>
+      <div>
+        <div className="flex items-center justify-between">
+          <Label className="text-xs text-gray-600">Goals</Label>
+          <Button
+            type="button"
+            size="sm"
+            variant="outline"
+            onClick={() => onChange({ ...section, goals: [...section.goals, "New goal"] })}
+          >
+            <Plus className="w-4 h-4 mr-2" /> Add goal
+          </Button>
+        </div>
+        <div className="mt-2 space-y-2">
+          {section.goals.map((g, idx) => (
+            <div key={idx} className="flex items-start gap-2">
+              <div className="flex flex-col gap-1">
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={() => {
+                    if (idx === 0) return;
+                    const next = [...section.goals];
+                    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                    onChange({ ...section, goals: next });
+                  }}
+                  disabled={idx === 0}
+                  aria-label="Move up"
+                >
+                  <ChevronUp className="w-4 h-4" />
+                </Button>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  className="h-6 w-6"
+                  onClick={() => {
+                    if (idx === section.goals.length - 1) return;
+                    const next = [...section.goals];
+                    [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+                    onChange({ ...section, goals: next });
+                  }}
+                  disabled={idx === section.goals.length - 1}
+                  aria-label="Move down"
+                >
+                  <ChevronDown className="w-4 h-4" />
+                </Button>
+              </div>
+              <div className="flex-1">
+                <Input
+                  value={g}
+                  onChange={(e) => {
+                    const next = [...section.goals];
+                    next[idx] = e.target.value;
+                    onChange({ ...section, goals: next });
+                  }}
+                  placeholder={`Goal ${idx + 1}`}
+                />
+              </div>
+              <div>
+                <Button
+                  type="button"
+                  size="icon"
+                  variant="ghost"
+                  aria-label="Delete goal"
+                  onClick={() => {
+                    const next = section.goals.filter((_, i) => i !== idx);
+                    onChange({ ...section, goals: next });
+                  }}
+                >
+                  <Trash2 className="w-4 h-4" />
+                </Button>
+              </div>
+            </div>
+          ))}
+          {section.goals.length === 0 && (
+            <div className="text-xs text-gray-500">No goals yet. Add one to get started.</div>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
 
 interface SetupPageProps {
   params: Promise<{ scenarioId: string }>;
@@ -41,6 +139,13 @@ export default function SetupPage({ params }: SetupPageProps) {
   const [tpError, setTpError] = useState<string | null>(null);
   const [tpEdited, setTpEdited] = useState<boolean>(false);
   const [tpSavedAt, setTpSavedAt] = useState<number | null>(null);
+
+  // Presentational flow state
+  const [flow, setFlow] = useState<PresentationalFlow | null>(null);
+  const [flowLoading, setFlowLoading] = useState<boolean>(false);
+  const [flowError, setFlowError] = useState<string | null>(null);
+  const [flowEdited, setFlowEdited] = useState<boolean>(false);
+  const [flowSavedAt, setFlowSavedAt] = useState<number | null>(null);
 
   const handleFileChange = async (file: File | null) => {
     setSelectedFile(file);
@@ -109,6 +214,37 @@ export default function SetupPage({ params }: SetupPageProps) {
     }
   };
 
+  const generateFlow = async (opts?: { force?: boolean }) => {
+    if (!scenario?.presentational) return;
+    if (flowEdited && !opts?.force) return;
+    try {
+      setFlowLoading(true);
+      setFlowError(null);
+      setFlowSavedAt(null);
+      const res = await fetch("/api/analyze/flow", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          context: composedPrompt,
+          presentational: scenario.presentational,
+          sectionsMin: 2,
+          sectionsMax: 4,
+        }),
+      });
+      const data = await res.json();
+      if (!res.ok) {
+        setFlowError(data?.error || "Failed to generate flow");
+        return;
+      }
+      setFlow(data.flow || null);
+      setFlowEdited(false);
+    } catch (e) {
+      setFlowError("Network error while generating flow");
+    } finally {
+      setFlowLoading(false);
+    }
+  };
+
   // Auto-generate after extraction completes (once), unless user already edited
   useEffect(() => {
     if (extracted && !tpEdited && !talkingPoints && !tpLoading) {
@@ -116,6 +252,22 @@ export default function SetupPage({ params }: SetupPageProps) {
     }
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [extracted]);
+
+  // Auto-generate flow for presentational scenarios after extraction completes (once), unless user edited
+  useEffect(() => {
+    if (scenario?.presentational && extracted && !flowEdited && !flow && !flowLoading) {
+      void generateFlow();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [extracted, scenario?.presentational]);
+
+  // Also attempt initial flow generation for presentational scenarios on mount (without requiring extraction)
+  useEffect(() => {
+    if (scenario?.presentational && !flowEdited && !flow && !flowLoading) {
+      void generateFlow();
+    }
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [scenario?.presentational]);
 
   const getFileIcon = (file: File) => {
     const type = file.type;
@@ -269,6 +421,188 @@ export default function SetupPage({ params }: SetupPageProps) {
                   Skip setup and start now
                 </Link>
               </div>
+
+              {/* Presentational Flow (only for presentational scenarios) */}
+              {scenario.presentational && (
+                <div className="pt-6">
+                  <div className="flex items-center justify-between mb-2">
+                    <Label className="text-base">Presentation Flow</Label>
+                    <div className="flex items-center gap-2">
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="outline"
+                        onClick={() => {
+                          if (flowEdited) {
+                            const ok = window.confirm("Regenerate and overwrite your edits?");
+                            if (!ok) return;
+                          }
+                          generateFlow({ force: true });
+                        }}
+                        disabled={flowLoading}
+                      >
+                        <RefreshCw className={`w-4 h-4 mr-2 ${flowLoading ? 'animate-spin' : ''}`} />
+                        {flow ? 'Regenerate' : 'Generate'}
+                      </Button>
+                      <Button
+                        type="button"
+                        size="sm"
+                        variant="default"
+                        onClick={() => setFlowSavedAt(Date.now())}
+                        disabled={!flow}
+                      >
+                        <Save className="w-4 h-4 mr-2" /> Save
+                      </Button>
+                    </div>
+                  </div>
+                  {flowError && (
+                    <p className="text-xs text-red-600 mb-2">{flowError}</p>
+                  )}
+                  {flowSavedAt && (
+                    <p className="text-xs text-green-600 mb-2">Saved.</p>
+                  )}
+                  {!flow && !flowLoading && (
+                    <p className="text-xs text-gray-500">Generate a structured presentation plan. You can edit and reorder it.</p>
+                  )}
+                  {flowLoading && (
+                    <p className="text-xs text-gray-500">Generating flow…</p>
+                  )}
+
+                  {flow && (
+                    <div className="space-y-4">
+                      {/* Intro */}
+                      <div className="border rounded-md p-3 bg-white">
+                        <div className="text-sm font-medium mb-2">Introduction</div>
+                        <SectionEditor
+                          section={flow.intro}
+                          onChange={(next) => {
+                            setFlow({ ...flow, intro: next });
+                            setFlowEdited(true);
+                          }}
+                        />
+                      </div>
+
+                      {/* Body Sections */}
+                      <div className="space-y-3">
+                        <div className="flex items-center justify-between">
+                          <div className="text-sm font-medium">Sections</div>
+                          <div>
+                            <Button
+                              type="button"
+                              variant="outline"
+                              size="sm"
+                              onClick={() => {
+                                setFlow({
+                                  ...flow,
+                                  sections: [
+                                    ...flow.sections,
+                                    { id: crypto.randomUUID(), title: "New Section", goals: ["Add a brief goal"] },
+                                  ],
+                                });
+                                setFlowEdited(true);
+                              }}
+                            >
+                              <Plus className="w-4 h-4 mr-2" /> Add section
+                            </Button>
+                          </div>
+                        </div>
+                        {flow.sections.map((sec, idx) => (
+                          <div key={sec.id} className="border rounded-md p-3 bg-white">
+                            <div className="flex items-start gap-3">
+                              <div className="flex flex-col gap-1">
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6"
+                                  onClick={() => {
+                                    if (idx === 0) return;
+                                    const next = [...flow.sections];
+                                    [next[idx - 1], next[idx]] = [next[idx], next[idx - 1]];
+                                    setFlow({ ...flow, sections: next });
+                                    setFlowEdited(true);
+                                  }}
+                                  disabled={idx === 0}
+                                  aria-label="Move up"
+                                >
+                                  <ChevronUp className="w-4 h-4" />
+                                </Button>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  className="h-6 w-6"
+                                  onClick={() => {
+                                    if (idx === flow.sections.length - 1) return;
+                                    const next = [...flow.sections];
+                                    [next[idx + 1], next[idx]] = [next[idx], next[idx + 1]];
+                                    setFlow({ ...flow, sections: next });
+                                    setFlowEdited(true);
+                                  }}
+                                  disabled={idx === flow.sections.length - 1}
+                                  aria-label="Move down"
+                                >
+                                  <ChevronDown className="w-4 h-4" />
+                                </Button>
+                              </div>
+                              <div className="flex-1">
+                                <SectionEditor
+                                  section={sec}
+                                  onChange={(next) => {
+                                    const updated = [...flow.sections];
+                                    updated[idx] = next;
+                                    setFlow({ ...flow, sections: updated });
+                                    setFlowEdited(true);
+                                  }}
+                                />
+                              </div>
+                              <div>
+                                <Button
+                                  type="button"
+                                  size="icon"
+                                  variant="ghost"
+                                  aria-label="Delete section"
+                                  onClick={() => {
+                                    const next = flow.sections.filter((s) => s.id !== sec.id);
+                                    setFlow({ ...flow, sections: next });
+                                    setFlowEdited(true);
+                                  }}
+                                >
+                                  <Trash2 className="w-4 h-4" />
+                                </Button>
+                              </div>
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+
+                      {/* Conclusion */}
+                      <div className="border rounded-md p-3 bg-white">
+                        <div className="text-sm font-medium mb-2">Conclusion</div>
+                        <SectionEditor
+                          section={flow.conclusion}
+                          onChange={(next) => {
+                            setFlow({ ...flow, conclusion: next });
+                            setFlowEdited(true);
+                          }}
+                        />
+                      </div>
+
+                      {/* Q&A */}
+                      <div className="border rounded-md p-3 bg-white">
+                        <div className="text-sm font-medium mb-2">Q&A</div>
+                        <SectionEditor
+                          section={flow.qa}
+                          onChange={(next) => {
+                            setFlow({ ...flow, qa: next });
+                            setFlowEdited(true);
+                          }}
+                        />
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
               {/* Talking points */}
               <div className="pt-4">
                 <div className="flex items-center justify-between mb-2">
