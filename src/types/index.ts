@@ -1,0 +1,44 @@
+export type DifficultyLevel = 'easy' | 'medium' | 'hard';
+
+export type ScenarioType = 
+  | 'party'
+  | 'classroom'
+  | 'job-interview'
+  | 'de-escalation'
+  | 'presentation';
+
+export interface Scenario {
+  id: string;
+  title: string;
+  description: string;
+  type: ScenarioType;
+  participantCount: number;
+  duration: number; // in seconds
+  icon: string;
+  difficulty: DifficultyLevel;
+}
+
+export interface Agent {
+  id: string;
+  name: string;
+  personality: string;
+  avatar: string;
+  role?: string;
+}
+
+export interface Message {
+  id: string;
+  agentId: string;
+  agentName: string;
+  content: string;
+  timestamp: Date;
+  isUser?: boolean;
+}
+
+export interface PracticeSession {
+  scenarioId: string;
+  startTime: Date;
+  messages: Message[];
+  score: number;
+  difficulty: DifficultyLevel;
+}
