@@ -1,6 +1,5 @@
 {
-  "/api/extract-text/route": "app/api/extract-text/route.js",
-  "/api/analyze/talking-points/route": "app/api/analyze/talking-points/route.js",
-  "/scenarios/page": "app/scenarios/page.js",
-  "/practice/[scenarioId]/setup/page": "app/practice/[scenarioId]/setup/page.js"
+  "/api/analyze/flow/route": "app/api/analyze/flow/route.js",
+  "/practice/[scenarioId]/setup/page": "app/practice/[scenarioId]/setup/page.js",
+  "/scenarios/page": "app/scenarios/page.js"
 }
