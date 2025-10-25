@@ -53,7 +53,7 @@ export default function ScenariosPage() {
                     {Math.floor(scenario.duration / 60)} min
                   </div>
                 </div>
-                <Link href={`/practice/${scenario.id}`}>
+                <Link href={`/practice/${scenario.id}/setup`}>
                   <Button className="w-full">
                     Start Practice
                   </Button>
