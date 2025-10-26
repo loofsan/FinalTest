@@ -1,5 +1,0 @@
-{
-  "/api/analyze/flow/route": "app/api/analyze/flow/route.js",
-  "/practice/[scenarioId]/setup/page": "app/practice/[scenarioId]/setup/page.js",
-  "/scenarios/page": "app/scenarios/page.js"
-}

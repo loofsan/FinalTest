@@ -307,32 +307,138 @@ export interface ConversationTurnState {
   awaitingUser: boolean;
   // Counts completed agent turns (increments after each agent response)
   turnIndex: number;
+  // Track consecutive agent messages for circuit breaker
+  consecutiveAgentMessages: number;
+  // Last user message ID for deduplication
+  lastUserMessageId: string | null;
+  // Session ID for tracking
+  sessionId: string;
 }
 
 export const initConversationState = (): ConversationTurnState => ({
   lastSpeaker: 'system',
   awaitingUser: true,
   turnIndex: 0,
+  consecutiveAgentMessages: 0,
+  lastUserMessageId: null,
+  sessionId: `session-${Date.now()}-${Math.random().toString(36).substr(2, 9)}`,
 });
 
 export const canGenerateAgentResponse = (state: ConversationTurnState): boolean => {
-  return state.lastSpeaker === 'user' && state.awaitingUser === false;
+  // Circuit breaker: prevent runaway agent responses
+  if (state.consecutiveAgentMessages >= 2) {
+    console.warn(`[TurnTaking] Circuit breaker triggered: ${state.consecutiveAgentMessages} consecutive agent messages`);
+    return false;
+  }
+  
+  // Only allow response if last speaker was user and we're not already awaiting user
+  const canGenerate = state.lastSpeaker === 'user' && state.awaitingUser === false;
+  
+  console.log(`[TurnTaking] Session ${state.sessionId} - Can generate: ${canGenerate}, lastSpeaker: ${state.lastSpeaker}, awaitingUser: ${state.awaitingUser}, turnIndex: ${state.turnIndex}`);
+  
+  return canGenerate;
 };
 
-export const updateStateOnUserMessage = (state: ConversationTurnState): ConversationTurnState => ({
-  ...state,
-  lastSpeaker: 'user',
-  awaitingUser: false,
-});
+export const updateStateOnUserMessage = (state: ConversationTurnState, messageId?: string): ConversationTurnState => {
+  const updated = {
+    ...state,
+    lastSpeaker: 'user',
+    awaitingUser: false,
+    consecutiveAgentMessages: 0, // Reset circuit breaker
+    lastUserMessageId: messageId || state.lastUserMessageId,
+  };
+  
+  console.log(`[TurnTaking] User spoke - Session ${updated.sessionId}, Turn ${updated.turnIndex}, MessageId: ${messageId}`);
+  
+  return updated;
+};
 
 export const advanceAfterAgentResponse = (
   state: ConversationTurnState,
   agentId: string
-): ConversationTurnState => ({
-  lastSpeaker: agentId,
-  awaitingUser: true,
-  turnIndex: (state.turnIndex ?? 0) + 1,
-});
+): ConversationTurnState => {
+  const updated = {
+    ...state,
+    lastSpeaker: agentId,
+    awaitingUser: true,
+    turnIndex: state.turnIndex + 1,
+    consecutiveAgentMessages: state.consecutiveAgentMessages + 1,
+  };
+  
+  console.log(`[TurnTaking] Agent ${agentId} spoke - Session ${updated.sessionId}, Turn ${updated.turnIndex}, Consecutive agent messages: ${updated.consecutiveAgentMessages}`);
+  
+  return updated;
+};
+
+// Deduplication system
+class DeduplicationCache {
+  private cache = new Map<string, Set<string>>();
+  private maxSize = 1000;
+  
+  private generateHash(
+    sessionId: string,
+    lastUserMessageId: string | null,
+    selectedAgentId: string,
+    promptSnapshot: string
+  ): string {
+    const components = [
+      sessionId,
+      lastUserMessageId || 'none',
+      selectedAgentId,
+      promptSnapshot.slice(0, 100) // Use first 100 chars of prompt for hash
+    ].join('|');
+    
+    // Simple hash function
+    let hash = 0;
+    for (let i = 0; i < components.length; i++) {
+      const char = components.charCodeAt(i);
+      hash = ((hash << 5) - hash) + char;
+      hash = hash & hash; // Convert to 32bit integer
+    }
+    
+    return `dedupe-${hash}`;
+  }
+  
+  isDuplicate(
+    sessionId: string,
+    lastUserMessageId: string | null,
+    selectedAgentId: string,
+    promptSnapshot: string
+  ): boolean {
+    const hash = this.generateHash(sessionId, lastUserMessageId, selectedAgentId, promptSnapshot);
+    
+    if (!this.cache.has(sessionId)) {
+      this.cache.set(sessionId, new Set());
+    }
+    
+    const sessionCache = this.cache.get(sessionId)!;
+    
+    if (sessionCache.has(hash)) {
+      console.log(`[Deduplication] Duplicate detected for session ${sessionId}, hash: ${hash}`);
+      return true;
+    }
+    
+    // Add to cache
+    sessionCache.add(hash);
+    
+    // Cleanup old sessions if cache is too large
+    if (this.cache.size > this.maxSize) {
+      const oldestSession = this.cache.keys().next().value;
+      if (oldestSession) {
+        this.cache.delete(oldestSession);
+      }
+    }
+    
+    return false;
+  }
+  
+  clearSession(sessionId: string) {
+    this.cache.delete(sessionId);
+    console.log(`[Deduplication] Cleared cache for session ${sessionId}`);
+  }
+}
+
+export const deduplicationCache = new DeduplicationCache();
 
 // Choose a single agent to speak this turn.
 // Strategy:
@@ -369,6 +475,7 @@ export function selectAgentToSpeak(
   const chosenStrategy: SpeakerSelectionStrategy = strategy || 'active-host';
 
   if (availableAgents.length === 0) {
+    console.warn('[SpeakerSelection] No agents available');
     // Fallback to deriving from messages if agents not provided
     const derived = uniqueAgentsFromMessages(messages);
     if (derived.length === 0) return null;
@@ -377,13 +484,26 @@ export function selectAgentToSpeak(
     return { id: pick.id, name: pick.name, personality: '', avatar: '' } as Agent;
   }
 
+  let selected: Agent | null = null;
+
   if (chosenStrategy === 'active-host') {
     const host = availableAgents.find((a) => a.name.toLowerCase() === DEFAULT_HOST_NAME.toLowerCase());
-    if (host) return host;
-    // Fallback to round-robin if host is not present
+    if (host) {
+      selected = host;
+      console.log(`[SpeakerSelection] Selected host agent: ${host.name} (${host.id})`);
+    }
   }
 
-  // round-robin by number of agent messages so far
-  const rrIdx = availableAgents.length > 0 ? countAgentMessages(messages) % availableAgents.length : 0;
-  return availableAgents[rrIdx] || null;
+  if (!selected) {
+    // Fallback to round-robin
+    const rrIdx = availableAgents.length > 0 ? countAgentMessages(messages) % availableAgents.length : 0;
+    selected = availableAgents[rrIdx] || null;
+    if (selected) {
+      console.log(`[SpeakerSelection] Selected agent via round-robin: ${selected.name} (${selected.id})`);
+    }
+  }
+
+  return selected;
 }
+
+

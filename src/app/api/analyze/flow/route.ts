@@ -11,6 +11,7 @@ interface GenerateFlowRequest {
   presentational?: boolean;
   sectionsMin?: number; // desired min number of body sections (excluding intro/conclusion/qa)
   sectionsMax?: number; // desired max number of body sections
+  lastMessageRole?: 'user' | 'agent'; // Role validation
 }
 
 type RawFlowSection = { title?: string; goals?: string[] };
@@ -36,11 +37,22 @@ export async function POST(request: NextRequest) {
       presentational = true,
       sectionsMin = 2,
       sectionsMax = 4,
+      lastMessageRole,
     } = body || {};
+
+    // Server-side validation: reject if last message is not from user
+    if (lastMessageRole && lastMessageRole !== 'user') {
+      console.warn(`[Flow API] Rejected flow generation request with lastMessageRole: ${lastMessageRole}`);
+      return NextResponse.json(
+        { error: "Flow generation is only triggered by user messages", skipped: true },
+        { status: 204 } // No Content
+      );
+    }
 
     if (!context || typeof context !== "string") {
       return NextResponse.json({ error: "'context' is required" }, { status: 400 });
     }
+    
     const min = clamp(Math.max(1, Math.floor(sectionsMin)), 1, 8);
     const max = clamp(Math.max(min, Math.floor(sectionsMax)), min, 10);
 
